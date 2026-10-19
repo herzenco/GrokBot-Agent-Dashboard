@@ -220,6 +220,7 @@ html.dark .theme-toggle .icon-sun { display: block; }
 
 .split { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
 .split-main { flex: 999 1 560px; min-width: 0; }
+.split-side { display: contents; }
 .agent-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
@@ -419,7 +420,7 @@ html.dark .theme-toggle .icon-sun { display: block; }
   flex-direction: column;
   gap: 8px;
 }
-.task-title { margin: 0; font-size: 15px; font-weight: 650; cursor: grab; }
+.task-title { margin: 0; font-size: 15px; font-weight: 600; cursor: grab; }
 .task-title:active { cursor: grabbing; }
 .task-details, .blocked-note { margin: 0; color: var(--muted); font-size: 13px; }
 .blocked-note { color: var(--ink); background: var(--orange-soft); border-radius: 10px; padding: 8px 10px; }

@@ -103,15 +103,19 @@ function TaskCard({
   const [blocking, setBlocking] = useState(false);
 
   return (
-    <article className="task">
-      <h3
-        className="task-title"
-        draggable
-        onDragStart={(event) => {
-          event.dataTransfer.setData("text/plain", task.id);
-          event.dataTransfer.effectAllowed = "move";
-        }}
-      >
+    <article
+      className="task"
+      onDragStart={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("button, select, textarea, input, a, label")) {
+          event.preventDefault();
+          return;
+        }
+        event.dataTransfer.setData("text/plain", task.id);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+    >
+      <h3 className="task-title" draggable>
         {task.title}
       </h3>
       {task.details ? <p className="task-details">{task.details}</p> : null}

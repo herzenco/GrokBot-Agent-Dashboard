@@ -24,7 +24,7 @@ export function Split({ main, side }: { main: React.ReactNode; side: React.React
   return (
     <div className={open ? "split" : "split split-closed"}>
       <div className="split-main">{main}</div>
-      {open ? side : null}
+      {open ? <div className="split-side">{side}</div> : null}
     </div>
   );
 }
