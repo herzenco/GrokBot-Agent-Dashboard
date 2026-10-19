@@ -2,6 +2,7 @@ export type Priority = "low" | "normal" | "high";
 export type TaskStatus = "todo" | "doing" | "done";
 export type DocAction = "created" | "edited" | "moved" | "archived";
 export type Mood = "active" | "blocked" | "idle";
+export type LiveState = "working" | "idle" | "blocked";
 
 export type Agent = {
   id: string;
@@ -9,6 +10,13 @@ export type Agent = {
   name: string;
   role: string;
   sort_order: number;
+};
+
+export type AgentStatusRow = {
+  agent_id: string;
+  state: LiveState;
+  working_on: string;
+  updated_at: string;
 };
 
 export type Task = {

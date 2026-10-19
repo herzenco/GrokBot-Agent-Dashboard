@@ -179,6 +179,8 @@ html.dark .theme-toggle .icon-sun { display: block; }
 }
 .page-title { font-size: clamp(28px, 3vw, 36px); }
 .subhead { margin: 6px 0 28px; font-size: 17px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.board-subhead { margin-bottom: 6px; }
+.live-summary { margin: 0 0 28px; font-size: 15px; color: var(--muted); }
 .stuck-word { color: var(--orange); font-weight: 600; }
 
 .stats {
@@ -267,6 +269,31 @@ html.dark .theme-toggle .icon-sun { display: block; }
 .pill-blocked .pill-dot { background: var(--orange); border-color: var(--orange); }
 .pill-idle { color: var(--muted); }
 .card-body { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 18px 18px 16px; }
+.live-now {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.live-now-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.live-now .pill { align-self: center; }
+.live-kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.live-focus { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.live-time {
+  margin: 0;
+  font-family: var(--font-mono), "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+.live-time.is-stale { color: var(--orange); }
 .bubbles { display: flex; flex-direction: column; gap: 8px; }
 .bubble { position: relative; padding: 11px 14px 12px; border-radius: 14px; font-size: 14px; }
 .bubble[data-tail="yes"]::before {
@@ -336,6 +363,24 @@ html.dark .theme-toggle .icon-sun { display: block; }
   padding: 20px;
 }
 .activity-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.activity-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.live-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+.live-mark::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
 .activity-head h2 {
   margin: 0;
   font-family: var(--font-display), "Bricolage Grotesque", sans-serif;

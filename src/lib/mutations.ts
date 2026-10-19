@@ -1,7 +1,8 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { getTask, listAgents } from "@/lib/data";
-import type { Agent, DocAction, Priority, Task, TaskStatus } from "@/lib/types";
+import { getAgentStatus, getTask, listAgents } from "@/lib/data";
+import { statusActivitySummary } from "@/lib/live";
+import type { Agent, DocAction, LiveState, Priority, Task, TaskStatus } from "@/lib/types";
 
 const TASK_COLUMNS =
   "id,title,details,agent_id,priority,status,blocked,blocked_note,created_at,updated_at,done_at";
@@ -47,6 +48,54 @@ async function writeActivity(row: {
     document_id: row.document_id ?? null,
   });
   if (error) throw new Error(error.message);
+}
+
+export async function recordHeartbeat(input: {
+  agent: Agent;
+  state: LiveState;
+  workingOn: string;
+}): Promise<{ agent: string; state: LiveState; working_on: string; updated_at: string }> {
+  const previous = await getAgentStatus(input.agent.id);
+  const { data, error } = await db()
+    .from("agent_heartbeats")
+    .insert({
+      agent_id: input.agent.id,
+      state: input.state,
+      working_on: input.workingOn,
+    })
+    .select("created_at")
+    .single();
+  if (error) throw new Error(error.message);
+  const updatedAt = (data as { created_at: string }).created_at;
+  const changed = !previous || previous.state !== input.state || previous.working_on !== input.workingOn;
+
+  if (changed) {
+    await writeActivity({
+      actor: input.agent.slug,
+      verb: "status",
+      summary: statusActivitySummary(input.state, input.workingOn),
+    });
+  }
+
+  const { error: statusError } = await db()
+    .from("agent_status")
+    .upsert(
+      {
+        agent_id: input.agent.id,
+        state: input.state,
+        working_on: input.workingOn,
+        updated_at: updatedAt,
+      },
+      { onConflict: "agent_id" },
+    );
+  if (statusError) throw new Error(statusError.message);
+
+  return {
+    agent: input.agent.slug,
+    state: input.state,
+    working_on: input.workingOn,
+    updated_at: updatedAt,
+  };
 }
 
 export async function createTaskForAgent(input: {
