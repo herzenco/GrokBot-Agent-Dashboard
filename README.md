@@ -16,11 +16,13 @@ npm install
 cp .env.example .env.local
 ```
 
-3. Apply `supabase/migrations/20261019120000_init.sql` to your Supabase project. In the dashboard, open the SQL editor and run the file. With the Supabase CLI, from this repo:
+3. Apply the SQL in `supabase/migrations` in filename order. In the dashboard, open the SQL editor and run each file. With the Supabase CLI, from this repo:
 
 ```bash
 supabase db push
 ```
+
+`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables and does not insert sample rows.
 
 4. Start the app:
 
@@ -48,7 +50,9 @@ The session cookie is httpOnly, SameSite=Lax, and valid for 30 days. In producti
 
 ## Database
 
-Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`.
+Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`, `agent_status`, `agent_heartbeats`.
+
+`agent_status` keeps the latest heartbeat for each agent. `agent_heartbeats` stores every post. `updated_at` and `created_at` are set by the database, not by the client. A heartbeat older than 30 minutes is shown as idle.
 
 Row level security is enabled on every table and there are no policies. The anon and authenticated roles have their table privileges revoked. Only the service role, used by the Next.js server, can read and write. Agent API keys are stored as SHA-256 hashes on `agents.api_key_hash`.
 
@@ -64,7 +68,7 @@ npm run keys:generate
 
 If `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set (or present in `.env.local`), the script reads the current agent slugs. Otherwise it uses the eight seeded slugs. Run the printed SQL in Supabase, and keep the plaintext keys somewhere outside this repository.
 
-An agent key can only see and change that agent's tasks and documents. `ADMIN_API_KEY` can act for any agent. Pass the agent slug in the JSON body (`agent`) or, for the task list, as `?agent=`.
+An agent key can only see and change that agent's tasks, documents, and status. `ADMIN_API_KEY` can act for any agent. Pass the agent slug in the JSON body (`agent`) or, for the task list, as `?agent=`.
 
 ## Agent API
 
@@ -160,7 +164,51 @@ curl -s -X POST http://localhost:3000/api/agent/documents \
   }'
 ```
 
-Every task change, report, and document event writes an `activity` row. The actor is the agent slug, or `tito` when the change comes from the dashboard.
+### Post a status heartbeat
+
+`POST /api/agent/status`
+
+Header: `Authorization: Bearer <key>` and `Content-Type: application/json`.
+
+Body fields:
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `state` | yes | `working`, `idle`, or `blocked` |
+| `working_on` | when `state` is `working` or `blocked` | What the agent is doing now. A single line, 200 characters or fewer. Optional for `idle`; blank is stored as an empty string. |
+| `agent` | admin key only | Agent slug, same rule as the other write routes. An agent key may omit it and can only post for itself. |
+
+The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. Posting the same `state` and `working_on` again refreshes the timestamp and does not add another activity line. A change does.
+
+The signed-in dashboard polls server routes about every 10 seconds for this status and for today’s activity. Those routes use the session cookie. The browser does not talk to Supabase.
+
+Responses:
+
+| Status | Body |
+| --- | --- |
+| 200 | `{ "agent", "state", "working_on", "updated_at" }` |
+| 400 | `{ "error" }` when the JSON or a field is invalid |
+| 401 | `{ "error": "Unauthorized" }` when the bearer key is missing or unknown |
+| 403 | `{ "error" }` when an agent key tries to act for someone else |
+| 404 | `{ "error": "Unknown agent" }` when the admin key names a slug that does not exist |
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/status \
+  -H "Authorization: Bearer $ROGER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"state":"working","working_on":"Weekly priorities memo for Tito"}'
+```
+
+Admin, acting as Chopper:
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/status \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent":"chopper","state":"blocked","working_on":"Waiting on the Coral Gables citations"}'
+```
+
+Every task change, report, document event, and status change writes an `activity` row. The actor is the agent slug, or `tito` when the change comes from the dashboard.
 
 ## Checks
 
@@ -172,4 +220,4 @@ npm run build
 
 ## Deploy on Vercel
 
-Import the repo, set the five environment variables above, and deploy. Apply the SQL migration to the Supabase project those variables point at before the first login. The production session cookie is Secure, so the site needs HTTPS, which Vercel provides.
+Import the repo, set the five environment variables above, and deploy. Apply the SQL migrations to the Supabase project those variables point at before the first login. The production session cookie is Secure, so the site needs HTTPS, which Vercel provides.

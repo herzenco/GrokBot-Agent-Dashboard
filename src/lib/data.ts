@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { AgentIdentity } from "@/lib/api-key";
 import { db } from "@/lib/db";
-import type { ActivityRow, Agent, DocumentEvent, DocumentRow, Report, Task } from "@/lib/types";
+import type { ActivityRow, Agent, AgentStatusRow, DocumentEvent, DocumentRow, Report, Task } from "@/lib/types";
 
 const TASK_COLUMNS =
   "id,title,details,agent_id,priority,status,blocked,blocked_note,created_at,updated_at,done_at";
@@ -40,6 +40,21 @@ export async function findAgentByKeyHash(hash: string): Promise<AgentIdentity | 
   if (error) throw new Error(error.message);
   if (!data?.api_key_hash) return null;
   return data as AgentIdentity;
+}
+
+export async function listAgentStatus(): Promise<AgentStatusRow[]> {
+  const { data, error } = await db().from("agent_status").select("agent_id,state,working_on,updated_at");
+  return unwrap(data, error) as AgentStatusRow[];
+}
+
+export async function getAgentStatus(agentId: string): Promise<AgentStatusRow | null> {
+  const { data, error } = await db()
+    .from("agent_status")
+    .select("agent_id,state,working_on,updated_at")
+    .eq("agent_id", agentId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as AgentStatusRow | null) ?? null;
 }
 
 export async function listTasks(): Promise<Task[]> {
