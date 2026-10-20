@@ -16,7 +16,7 @@ function unwrap<T>(data: T | null, error: { message: string } | null): T {
 export const listAgents = cache(async (): Promise<Agent[]> => {
   const { data, error } = await db()
     .from("agents")
-    .select("id,slug,name,role,sort_order")
+    .select("id,slug,name,role,sort_order,last_active")
     .order("sort_order", { ascending: true });
   return unwrap(data, error) as Agent[];
 });
@@ -24,7 +24,7 @@ export const listAgents = cache(async (): Promise<Agent[]> => {
 export async function getAgentBySlug(slug: string): Promise<Agent | null> {
   const { data, error } = await db()
     .from("agents")
-    .select("id,slug,name,role,sort_order")
+    .select("id,slug,name,role,sort_order,last_active")
     .eq("slug", slug)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -45,16 +45,6 @@ export async function findAgentByKeyHash(hash: string): Promise<AgentIdentity | 
 export async function listAgentStatus(): Promise<AgentStatusRow[]> {
   const { data, error } = await db().from("agent_status").select("agent_id,state,working_on,updated_at");
   return unwrap(data, error) as AgentStatusRow[];
-}
-
-export async function getAgentStatus(agentId: string): Promise<AgentStatusRow | null> {
-  const { data, error } = await db()
-    .from("agent_status")
-    .select("agent_id,state,working_on,updated_at")
-    .eq("agent_id", agentId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as AgentStatusRow | null) ?? null;
 }
 
 export async function listTasks(): Promise<Task[]> {

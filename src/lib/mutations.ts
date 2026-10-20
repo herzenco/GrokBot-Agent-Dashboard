@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { getAgentStatus, getTask, listAgents } from "@/lib/data";
+import { getTask, listAgents } from "@/lib/data";
 import { statusActivitySummary } from "@/lib/live";
 import type { Agent, DocAction, LiveState, Priority, Task, TaskStatus } from "@/lib/types";
 
@@ -55,7 +55,6 @@ export async function recordHeartbeat(input: {
   state: LiveState;
   workingOn: string;
 }): Promise<{ agent: string; state: LiveState; working_on: string; updated_at: string }> {
-  const previous = await getAgentStatus(input.agent.id);
   const { data, error } = await db()
     .from("agent_heartbeats")
     .insert({
@@ -67,15 +66,12 @@ export async function recordHeartbeat(input: {
     .single();
   if (error) throw new Error(error.message);
   const updatedAt = (data as { created_at: string }).created_at;
-  const changed = !previous || previous.state !== input.state || previous.working_on !== input.workingOn;
 
-  if (changed) {
-    await writeActivity({
-      actor: input.agent.slug,
-      verb: "status",
-      summary: statusActivitySummary(input.state, input.workingOn),
-    });
-  }
+  await writeActivity({
+    actor: input.agent.slug,
+    verb: "status",
+    summary: statusActivitySummary(input.state, input.workingOn),
+  });
 
   const { error: statusError } = await db()
     .from("agent_status")

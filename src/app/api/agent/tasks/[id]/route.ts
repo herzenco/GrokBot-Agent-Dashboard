@@ -1,3 +1,4 @@
+import { noteAgentApiCall } from "@/lib/agent-activity";
 import { authenticate, asPriority, asStatus, asText, isResponse, jsonError, readJson } from "@/lib/agent-route";
 import { getTask, listAgents } from "@/lib/data";
 import { applyTaskPatch } from "@/lib/mutations";
@@ -50,6 +51,8 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     if (isResponse(note)) return note;
     patch.blocked_note = note;
   }
+  const keyAgent = actor.admin ? owner : (agents.find((agent) => agent.id === actor.agent.id) ?? owner);
+  let acting = keyAgent;
   if ("agent" in body) {
     if (!actor.admin && body.agent !== actor.agent.slug) {
       return jsonError("This key cannot act for another agent", 403);
@@ -57,7 +60,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     if (typeof body.agent !== "string") return jsonError("agent must be a slug", 400);
     const next = agents.find((agent) => agent.slug === body.agent);
     if (!next) return jsonError("Unknown agent", 404);
-    if (actor.admin) patch.agent_id = next.id;
+    if (actor.admin) {
+      patch.agent_id = next.id;
+      acting = next;
+    }
   }
 
   const actorSlug = actor.admin ? owner.slug : actor.agent.slug;
@@ -66,6 +72,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     const status = result.error === "Task not found" ? 404 : 400;
     return jsonError(result.error, status);
   }
+  await noteAgentApiCall(acting);
   const slug = agents.find((agent) => agent.id === result.task.agent_id)?.slug ?? owner.slug;
   return Response.json({ ...result.task, agent: slug });
 }

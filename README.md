@@ -22,7 +22,7 @@ cp .env.example .env.local
 supabase db push
 ```
 
-`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables and does not insert sample rows.
+`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. Neither later file inserts sample rows.
 
 4. Start the app:
 
@@ -52,7 +52,9 @@ The session cookie is httpOnly, SameSite=Lax, and valid for 30 days. In producti
 
 Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`, `agent_status`, `agent_heartbeats`.
 
-`agent_status` keeps the latest heartbeat for each agent. `agent_heartbeats` stores every post. `updated_at` and `created_at` are set by the database, not by the client. A heartbeat older than 30 minutes is shown as idle.
+`agent_status` keeps the latest explicit status for each agent. `agent_heartbeats` stores every status post. Those timestamps are set by the database, not by the client.
+
+`agents.last_active` is the server time of the last successful agent API call: a report, a task create or update, a document event, or a status post. The board reads that column. Within 2 hours it shows “Active 4 min ago”. After 2 hours it shows “Last active 5 h ago”. A posted working or blocked state, and its `working_on` text, stay on the card. The 2 hour mark is the single constant `STALE_AFTER_MS` in `src/lib/live.ts`.
 
 Row level security is enabled on every table and there are no policies. The anon and authenticated roles have their table privileges revoked. Only the service role, used by the Next.js server, can read and write. Agent API keys are stored as SHA-256 hashes on `agents.api_key_hash`.
 
@@ -149,7 +151,7 @@ curl -s -X PATCH http://localhost:3000/api/agent/tasks/TASK_ID \
 
 ### Log a document event
 
-Upserts a document by `vault_path`, then appends an event. `action` is `created`, `edited`, `moved`, or `archived`. For a move, pass `from_path` as the previous vault path. `url` is optional and must be `http`, `https`, or `obsidian`.
+Upserts a document by `vault_path`, then appends an event. `action` is `created`, `edited`, `moved`, or `archived`. For a move, pass `from_path` as the previous vault path. `url` is optional and must be `http`, `https`, or `obsidian`. The admin key must include `agent`. That named agent is stored on the event and shown on the Documents tab.
 
 ```bash
 curl -s -X POST http://localhost:3000/api/agent/documents \
@@ -178,7 +180,9 @@ Body fields:
 | `working_on` | when `state` is `working` or `blocked` | What the agent is doing now. A single line, 200 characters or fewer. Optional for `idle`; blank is stored as an empty string. |
 | `agent` | admin key only | Agent slug, same rule as the other write routes. An agent key may omit it and can only post for itself. |
 
-The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. Posting the same `state` and `working_on` again refreshes the timestamp and does not add another activity line. A change does.
+The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. It also sets `agents.last_active`. The same presence update happens after a successful report, task create, task update, or document event, so a chat turn does not need its own status post.
+
+The card keeps an explicit `working` or `blocked` state and the `working_on` text. From `last_active` it shows “Active 4 min ago” until that time is 2 hours old, then “Last active 5 h ago”.
 
 The signed-in dashboard polls server routes about every 10 seconds for this status and for today’s activity. Those routes use the session cookie. The browser does not talk to Supabase.
 
@@ -208,7 +212,7 @@ curl -s -X POST http://localhost:3000/api/agent/status \
   -d '{"agent":"chopper","state":"blocked","working_on":"Waiting on the Coral Gables citations"}'
 ```
 
-Every task change, report, document event, and status change writes an `activity` row. The actor is the agent slug, or `tito` when the change comes from the dashboard.
+A report, task change, document event, or status post writes an `activity` row, so the live feed shows that call. The actor is the agent slug. With the admin key, pass `agent`: the document event and the activity row are stored as that agent, and the Documents tab shows that name. A task update that changes nothing still refreshes `last_active` and does not add an activity row. Edits from the dashboard stay attributed to `tito` and do not move `last_active`.
 
 ## Checks
 

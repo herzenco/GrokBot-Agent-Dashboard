@@ -4,6 +4,7 @@ import { Avatar } from "@/components/avatar";
 import { Shell, Split } from "@/components/shell";
 import { loadChrome } from "@/lib/chrome";
 import { listDocumentEvents, listDocuments } from "@/lib/data";
+import { documentAgentName } from "@/lib/documents";
 import { formatEtDateTime } from "@/lib/time";
 import { safeHref } from "@/lib/url";
 
@@ -27,6 +28,7 @@ export default async function DocumentsPage() {
               {documents.map((document) => {
                 const event = latest.get(document.id);
                 const agent = event ? agentsById.get(event.agent_id) : undefined;
+                const agentName = documentAgentName(chrome.agents, event?.agent_id);
                 const href = safeHref(document.url);
                 return (
                   <li key={document.id} className="doc-row">
@@ -35,7 +37,7 @@ export default async function DocumentsPage() {
                       <code className="doc-path">{document.vault_path}</code>
                       <span className="doc-meta">
                         {agent ? <Avatar name={agent.name} mood={chrome.moods.get(agent.id) ?? "active"} size={22} /> : null}
-                        <span>{agent ? agent.name : "Unknown agent"}</span>
+                        <span>{agentName}</span>
                         <span>{formatEtDateTime(new Date(document.last_changed_at))}</span>
                       </span>
                     </Link>
