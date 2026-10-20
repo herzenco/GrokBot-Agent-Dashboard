@@ -52,6 +52,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
                       <span className={`event-action action-${event.action}`}>{event.action}</span>
                     </div>
                     <p>{event.change_summary}</p>
+                    {event.from_path ? <p className="doc-path">From {event.from_path}</p> : null}
                     <p className="activity-time">{formatEtDateTime(new Date(event.created_at))}</p>
                   </div>
                 </li>

@@ -22,7 +22,7 @@ cp .env.example .env.local
 supabase db push
 ```
 
-`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. Neither later file inserts sample rows.
+`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. `20261020140000_document_event_from_path.sql` adds `document_events.from_path`. The three later files insert no sample rows. Apply them before using live status or document moves. This repo does not apply them for you.
 
 4. Start the app:
 
@@ -58,7 +58,7 @@ Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`
 
 Row level security is enabled on every table and there are no policies. The anon and authenticated roles have their table privileges revoked. Only the service role, used by the Next.js server, can read and write. Agent API keys are stored as SHA-256 hashes on `agents.api_key_hash`.
 
-`documents` is an audit log: title, vault path, optional link, and a history of created / edited / moved / archived events. The app does not read vault files.
+`documents` is an audit log: title, vault path, optional link, and a history of created / edited / moved / archived events. The app does not read vault files. `document_events.from_path` stores the previous vault path on a moved event and is null for every other action.
 
 ## API keys
 
@@ -151,7 +151,27 @@ curl -s -X PATCH http://localhost:3000/api/agent/tasks/TASK_ID \
 
 ### Log a document event
 
-Upserts a document by `vault_path`, then appends an event. `action` is `created`, `edited`, `moved`, or `archived`. For a move, pass `from_path` as the previous vault path. `url` is optional and must be `http`, `https`, or `obsidian`. The admin key must include `agent`. That named agent is stored on the event and shown on the Documents tab.
+Upserts a document by `vault_path`, then appends an event. `action` is `created`, `edited`, `moved`, or `archived`. `url` is optional and must be `http`, `https`, or `obsidian`. The admin key must include `agent`. That named agent is stored on the event and shown on the Documents tab.
+
+A move passes `from_path` as the previous vault path. It returns 201 whether or not a document was already logged there:
+
+- A document at `from_path` is renamed to `vault_path`.
+- If nothing is logged at `from_path`, the route creates a document at `vault_path`, or updates the document already stored there.
+- The event stores `from_path`. `created`, `edited`, and `archived` store null.
+- If `from_path` and `vault_path` already belong to two different documents, the response is 409 `{ "error": "A document already uses that vault path" }`.
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/documents \
+  -H "Authorization: Bearer $ROGER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Weekly priorities memo",
+    "vault_path": "Agents/Roger/weekly-priorities.md",
+    "from_path": "Agents/Roger/priorities-draft.md",
+    "action": "moved",
+    "change_summary": "Filed the draft under the standing name"
+  }'
+```
 
 ```bash
 curl -s -X POST http://localhost:3000/api/agent/documents \
@@ -184,7 +204,9 @@ The server records a heartbeat and sets the timestamp. A client-supplied time is
 
 The card keeps an explicit `working` or `blocked` state and the `working_on` text. From `last_active` it shows “Active 4 min ago” until that time is 2 hours old, then “Last active 5 h ago”.
 
-The signed-in dashboard polls server routes about every 10 seconds for this status and for today’s activity. Those routes use the session cookie. The browser does not talk to Supabase.
+The signed-in board polls server routes about every 10 seconds. Those routes use the session cookie. The browser does not talk to Supabase.
+
+The board shows a Live indicator with “Updated 3s ago” for the last successful poll and the latest activity time across every agent (the newest `last_active` or feed timestamp, in Eastern Time). Agent cards, the daily snapshot (counts, done today, mood), and the activity feed refresh on that same cadence without a full reload. “Active 4 min ago” advances in the browser between polls. Polling pauses while the tab is hidden and runs again as soon as the tab is visible.
 
 Responses:
 

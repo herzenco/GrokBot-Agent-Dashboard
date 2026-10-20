@@ -3,9 +3,12 @@ import {
   STALE_AFTER_MS,
   activityAgeLabel,
   isLastActiveStale,
+  latestIso,
   parseStatusBody,
   presentLiveStatus,
+  shouldPollNow,
   statusActivitySummary,
+  updatedAgoLabel,
 } from "@/lib/live";
 import type { Agent, AgentStatusRow } from "@/lib/types";
 
@@ -151,5 +154,28 @@ describe("presence age", () => {
     expect(statusActivitySummary("blocked", "Waiting on Matt")).toBe("is blocked on “Waiting on Matt”");
     expect(statusActivitySummary("idle", "")).toBe("is idle");
     expect(statusActivitySummary("idle", "Back at 3")).toBe("is idle · “Back at 3”");
+  });
+});
+
+describe("live poll clock", () => {
+  it("counts seconds since the last successful poll", () => {
+    expect(updatedAgoLabel(null, 1_000)).toBe("Updated just now");
+    expect(updatedAgoLabel(1_000, 1_000)).toBe("Updated 0s ago");
+    expect(updatedAgoLabel(1_000, 4_200)).toBe("Updated 3s ago");
+    expect(updatedAgoLabel(5_000, 1_000)).toBe("Updated 0s ago");
+  });
+
+  it("uses the newest timestamp across agents and the feed", () => {
+    expect(latestIso([null, undefined, ""])).toBeNull();
+    expect(latestIso(["not-a-date", "2026-10-19T18:00:00.000Z"])).toBe("2026-10-19T18:00:00.000Z");
+    expect(
+      latestIso(["2026-10-19T17:00:00.000Z", "2026-10-19T18:04:00.000Z", "2026-10-19T18:01:00.000Z"]),
+    ).toBe("2026-10-19T18:04:00.000Z");
+  });
+
+  it("polls while the tab is visible and resumes when it becomes visible again", () => {
+    expect(shouldPollNow("visible")).toBe(true);
+    expect(shouldPollNow("hidden")).toBe(false);
+    expect(shouldPollNow("prerender")).toBe(false);
   });
 });

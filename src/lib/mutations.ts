@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { getTask, listAgents } from "@/lib/data";
+import { planDocumentMove } from "@/lib/documents";
 import { statusActivitySummary } from "@/lib/live";
 import type { Agent, DocAction, LiveState, Priority, Task, TaskStatus } from "@/lib/types";
 
@@ -281,6 +282,48 @@ async function findDocumentByPath(vaultPath: string) {
   } | null;
 }
 
+const DOCUMENT_COLUMNS = "id,title,vault_path,url,created_at,last_changed_at";
+const EVENT_COLUMNS = "id,document_id,agent_id,action,change_summary,from_path,created_at";
+
+async function saveDocument(
+  existing: NonNullable<Awaited<ReturnType<typeof findDocumentByPath>>>,
+  input: { title: string; vaultPath: string; url: string | null | undefined },
+  now: string,
+) {
+  const nextUrl = input.url === undefined ? existing.url : input.url;
+  const { data, error } = await db()
+    .from("documents")
+    .update({
+      title: input.title,
+      vault_path: input.vaultPath,
+      url: nextUrl,
+      last_changed_at: now,
+    })
+    .eq("id", existing.id)
+    .select(DOCUMENT_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as NonNullable<Awaited<ReturnType<typeof findDocumentByPath>>>;
+}
+
+async function createDocument(
+  input: { title: string; vaultPath: string; url: string | null | undefined },
+  now: string,
+) {
+  const { data, error } = await db()
+    .from("documents")
+    .insert({
+      title: input.title,
+      vault_path: input.vaultPath,
+      url: input.url ?? null,
+      last_changed_at: now,
+    })
+    .select(DOCUMENT_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as NonNullable<Awaited<ReturnType<typeof findDocumentByPath>>>;
+}
+
 export async function logDocumentEvent(input: {
   agent: Agent;
   title: string;
@@ -291,50 +334,34 @@ export async function logDocumentEvent(input: {
   changeSummary: string;
 }): Promise<{ document: Record<string, unknown>; event: Record<string, unknown> } | { error: string }> {
   const fromPath = input.fromPath?.trim() || null;
-  let existing = await findDocumentByPath(input.action === "moved" && fromPath ? fromPath : input.vaultPath);
-
-  if (input.action === "moved" && fromPath) {
-    if (!existing) return { error: "No document at from_path" };
-    if (fromPath !== input.vaultPath) {
-      const collision = await findDocumentByPath(input.vaultPath);
-      if (collision && collision.id !== existing.id) return { error: "A document already uses that vault path" };
-    }
-  }
-
   const now = new Date().toISOString();
-  let documentId: string;
-  if (existing) {
-    const nextUrl = input.url === undefined ? existing.url : input.url;
-    const { data, error } = await db()
-      .from("documents")
-      .update({
-        title: input.title,
-        vault_path: input.vaultPath,
-        url: nextUrl,
-        last_changed_at: now,
-      })
-      .eq("id", existing.id)
-      .select("id,title,vault_path,url,created_at,last_changed_at")
-      .single();
-    if (error) throw new Error(error.message);
-    documentId = (data as { id: string }).id;
-    existing = data as typeof existing;
+  let existing: NonNullable<Awaited<ReturnType<typeof findDocumentByPath>>>;
+  let eventFromPath: string | null = null;
+
+  if (input.action === "moved") {
+    const prior = fromPath ? await findDocumentByPath(fromPath) : null;
+    const destination = fromPath === input.vaultPath ? prior : await findDocumentByPath(input.vaultPath);
+    const plan = planDocumentMove({
+      fromPath,
+      vaultPath: input.vaultPath,
+      prior,
+      destination,
+    });
+    if (plan.action === "conflict") return { error: "A document already uses that vault path" };
+    eventFromPath = plan.fromPath;
+    if (plan.action === "update") {
+      const current = prior?.id === plan.id ? prior : destination;
+      if (!current) throw new Error("Document was not saved");
+      existing = await saveDocument(current, input, now);
+    } else {
+      existing = await createDocument(input, now);
+    }
   } else {
-    if (input.action === "moved") return { error: "No document at from_path" };
-    const { data, error } = await db()
-      .from("documents")
-      .insert({
-        title: input.title,
-        vault_path: input.vaultPath,
-        url: input.url ?? null,
-        last_changed_at: now,
-      })
-      .select("id,title,vault_path,url,created_at,last_changed_at")
-      .single();
-    if (error) throw new Error(error.message);
-    documentId = (data as { id: string }).id;
-    existing = data as NonNullable<typeof existing>;
+    const current = await findDocumentByPath(input.vaultPath);
+    existing = current ? await saveDocument(current, input, now) : await createDocument(input, now);
   }
+
+  const documentId = existing.id;
 
   const { data: event, error: eventError } = await db()
     .from("document_events")
@@ -343,8 +370,9 @@ export async function logDocumentEvent(input: {
       agent_id: input.agent.id,
       action: input.action,
       change_summary: input.changeSummary,
+      from_path: eventFromPath,
     })
-    .select("id,document_id,agent_id,action,change_summary,created_at")
+    .select(EVENT_COLUMNS)
     .single();
   if (eventError) throw new Error(eventError.message);
 

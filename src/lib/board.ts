@@ -118,6 +118,7 @@ export type ActivityView = {
   actorName: string;
   summary: string;
   timeLabel: string;
+  createdAt: string;
   mood: Mood;
   emphasize: boolean;
   isTito: boolean;
@@ -135,6 +136,7 @@ export function presentActivity(rows: ActivityRow[], agents: Agent[], moods: Map
       actorName: isTito ? "Tito" : (agent?.name ?? row.actor),
       summary: row.summary,
       timeLabel: `${formatEtTime(new Date(row.created_at))} ET`,
+      createdAt: row.created_at,
       mood: agent ? (moods.get(agent.id) ?? "active") : "active",
       emphasize: row.verb === "blocked",
       isTito,

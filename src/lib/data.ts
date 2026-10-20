@@ -92,7 +92,7 @@ export async function listDocuments(): Promise<DocumentRow[]> {
 export async function listDocumentEvents(documentId?: string): Promise<DocumentEvent[]> {
   let query = db()
     .from("document_events")
-    .select("id,document_id,agent_id,action,change_summary,created_at")
+    .select("id,document_id,agent_id,action,change_summary,from_path,created_at")
     .order("created_at", { ascending: true });
   if (documentId) query = query.eq("document_id", documentId);
   const { data, error } = await query;

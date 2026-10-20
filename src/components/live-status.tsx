@@ -1,12 +1,35 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
-import { LIVE_POLL_MS, livePillMood, liveStatusLabel, type LiveAgentView } from "@/lib/live";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { ActivityView } from "@/lib/board";
+import {
+  LIVE_POLL_MS,
+  activityAgeLabel,
+  latestIso,
+  livePillMood,
+  liveStatusLabel,
+  shouldPollNow,
+  updatedAgoLabel,
+  type LiveAgentView,
+} from "@/lib/live";
+import { formatEtTime } from "@/lib/time";
 
-const LiveContext = createContext<LiveAgentView[]>([]);
+type LiveBoard = {
+  rows: LiveAgentView[];
+  activity: ActivityView[];
+  polledAt: number | null;
+  now: number | null;
+  polling: true;
+};
+
+const LiveContext = createContext<LiveBoard | null>(null);
+
+export function useLiveBoard(): LiveBoard | null {
+  return useContext(LiveContext);
+}
 
 async function readJson(url: string): Promise<unknown | null> {
-  if (document.visibilityState === "hidden") return null;
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) return null;
   const type = response.headers.get("content-type") ?? "";
@@ -14,44 +37,93 @@ async function readJson(url: string): Promise<unknown | null> {
   return response.json() as Promise<unknown>;
 }
 
+function asAgents(body: unknown): LiveAgentView[] | null {
+  if (!body || typeof body !== "object" || !("agents" in body)) return null;
+  const agents = (body as { agents: unknown }).agents;
+  return Array.isArray(agents) ? (agents as LiveAgentView[]) : null;
+}
+
+function asActivity(body: unknown): ActivityView[] | null {
+  if (!body || typeof body !== "object" || !("items" in body)) return null;
+  const items = (body as { items: unknown }).items;
+  return Array.isArray(items) ? (items as ActivityView[]) : null;
+}
+
 export function LiveStatusProvider({
   initial,
+  initialActivity,
   children,
 }: {
   initial: LiveAgentView[];
+  initialActivity: ActivityView[];
   children: React.ReactNode;
 }) {
+  const router = useRouter();
+  const refreshRef = useRef(router.refresh);
+  refreshRef.current = router.refresh;
   const [rows, setRows] = useState(initial);
+  const [activity, setActivity] = useState<ActivityView[] | null>(null);
+  const [polledAt, setPolledAt] = useState<number | null>(null);
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
     let ignore = false;
+
     async function load() {
+      if (!shouldPollNow(document.visibilityState)) return;
+      const stamp = Date.now();
       try {
-        const body = await readJson("/api/live/status");
-        if (!body || typeof body !== "object" || !("agents" in body)) return;
-        const agents = (body as { agents: unknown }).agents;
-        if (!ignore && Array.isArray(agents)) setRows(agents as LiveAgentView[]);
+        const [statusBody, activityBody] = await Promise.all([
+          readJson("/api/live/status"),
+          readJson("/api/live/activity"),
+        ]);
+        if (ignore) return;
+        const nextRows = asAgents(statusBody);
+        const nextActivity = asActivity(activityBody);
+        if (nextRows) setRows(nextRows);
+        if (nextActivity) setActivity(nextActivity);
+        if (nextRows || nextActivity) {
+          setPolledAt(stamp);
+          setNow(Date.now());
+        }
       } catch {
         // Keep the last good snapshot when a poll fails.
       }
+      if (!ignore) refreshRef.current();
     }
+
+    void load();
     const timer = window.setInterval(() => void load(), LIVE_POLL_MS);
+    const tick = window.setInterval(() => {
+      if (shouldPollNow(document.visibilityState)) setNow(Date.now());
+    }, 1000);
+
     function onVisible() {
-      if (document.visibilityState === "visible") void load();
+      if (!shouldPollNow(document.visibilityState)) return;
+      setNow(Date.now());
+      void load();
     }
+
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       ignore = true;
       window.clearInterval(timer);
+      window.clearInterval(tick);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
-  return <LiveContext.Provider value={rows}>{children}</LiveContext.Provider>;
+  return (
+    <LiveContext.Provider
+      value={{ rows, activity: activity ?? initialActivity, polledAt, now, polling: true }}
+    >
+      {children}
+    </LiveContext.Provider>
+  );
 }
 
 export function LiveSummary() {
-  const rows = useContext(LiveContext);
+  const rows = useContext(LiveContext)?.rows ?? [];
   const working = rows.filter((row) => row.state === "working").length;
   const blocked = rows.filter((row) => row.state === "blocked").length;
   const idle = rows.filter((row) => row.state === "idle").length;
@@ -62,10 +134,29 @@ export function LiveSummary() {
   );
 }
 
+export function LiveIndicator() {
+  const board = useContext(LiveContext);
+  const rows = board?.rows ?? [];
+  const activity = board?.activity ?? [];
+  const latest = latestIso([...rows.map((row) => row.updated_at), ...activity.map((item) => item.createdAt)]);
+  const latestLabel = latest ? `${formatEtTime(new Date(latest))} ET` : "No activity yet";
+  return (
+    <p className="live-indicator">
+      <span className="live-mark">Live</span>
+      <span>{updatedAgoLabel(board?.polledAt ?? null, board?.now ?? 0)}</span>
+      <span className="live-latest">Latest activity {latestLabel}</span>
+    </p>
+  );
+}
+
 export function LiveAgentNow({ agentId }: { agentId: string }) {
-  const rows = useContext(LiveContext);
-  const row = rows.find((item) => item.agent_id === agentId);
+  const board = useContext(LiveContext);
+  const row = board?.rows.find((item) => item.agent_id === agentId);
   const state = row?.state ?? "idle";
+  const clock = board?.now ?? null;
+  const age = clock === null ? null : activityAgeLabel(row?.updated_at, new Date(clock));
+  const timeLabel = age?.label ?? row?.time_label ?? "No activity yet";
+  const stale = age ? age.stale : row?.stale !== false;
   return (
     <div className="live-now">
       <div className="live-now-top">
@@ -76,9 +167,7 @@ export function LiveAgentNow({ agentId }: { agentId: string }) {
         </span>
       </div>
       <p className="live-focus">{row?.focus_label ?? "No update yet"}</p>
-      <p className={row?.stale !== false ? "live-time is-stale" : "live-time"}>
-        {row?.time_label ?? "No activity yet"}
-      </p>
+      <p className={stale ? "live-time is-stale" : "live-time"}>{timeLabel}</p>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ActivityPanel } from "@/components/activity-panel";
 import { Avatar } from "@/components/avatar";
 import { CheckIcon } from "@/components/icons";
-import { LiveAgentNow, LiveStatusProvider, LiveSummary } from "@/components/live-status";
+import { LiveAgentNow, LiveIndicator, LiveStatusProvider, LiveSummary } from "@/components/live-status";
 import { Shell, Split } from "@/components/shell";
 import { tileVar } from "@/lib/avatar-model";
 import { statusLabel } from "@/lib/board";
@@ -24,8 +24,11 @@ export default async function BoardPage() {
       <p className="subhead board-subhead">
         {stats.working} {workingWord} working, <span className="stuck-word">{stats.stuck} stuck</span>, {stats.napping} napping.
       </p>
-      <LiveStatusProvider initial={live}>
-        <LiveSummary />
+      <LiveStatusProvider initial={live} initialActivity={activity}>
+        <div className="live-bar">
+          <LiveSummary />
+          <LiveIndicator />
+        </div>
         <section className="stats" aria-label="Summary">
           <div className="stat">
             <span className="stat-label">To do</span>
