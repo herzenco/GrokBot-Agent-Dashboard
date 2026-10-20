@@ -1,3 +1,4 @@
+import { noteAgentApiCall } from "@/lib/agent-activity";
 import { agentForWrite, asAction, asText, authenticate, isResponse, jsonError, readJson } from "@/lib/agent-route";
 import { logDocumentEvent } from "@/lib/mutations";
 import { safeHref } from "@/lib/url";
@@ -44,5 +45,6 @@ export async function POST(req: Request) {
     const status = result.error.includes("already") ? 409 : 404;
     return jsonError(result.error, status);
   }
+  await noteAgentApiCall(agent);
   return Response.json(result, { status: 201 });
 }

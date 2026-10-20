@@ -77,7 +77,7 @@ export function LiveAgentNow({ agentId }: { agentId: string }) {
       </div>
       <p className="live-focus">{row?.focus_label ?? "No update yet"}</p>
       <p className={row?.stale !== false ? "live-time is-stale" : "live-time"}>
-        {row?.time_label ?? "No heartbeat yet"}
+        {row?.time_label ?? "No activity yet"}
       </p>
     </div>
   );

@@ -5,6 +5,7 @@ import { Avatar } from "@/components/avatar";
 import { Shell, Split } from "@/components/shell";
 import { loadChrome } from "@/lib/chrome";
 import { getDocument, listDocumentEvents } from "@/lib/data";
+import { documentAgentName } from "@/lib/documents";
 import { formatEtDateTime } from "@/lib/time";
 import { isUuid, safeHref } from "@/lib/url";
 
@@ -41,12 +42,13 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
           <ol className="timeline">
             {events.map((event) => {
               const agent = agentsById.get(event.agent_id);
+              const agentName = documentAgentName(chrome.agents, event.agent_id);
               return (
                 <li key={event.id} className="event">
                   {agent ? <Avatar name={agent.name} mood={chrome.moods.get(agent.id) ?? "active"} size={36} /> : <span className="tito-mark">?</span>}
                   <div>
                     <div className="event-line">
-                      <strong>{agent?.name ?? "Unknown agent"}</strong>
+                      <strong>{agentName}</strong>
                       <span className={`event-action action-${event.action}`}>{event.action}</span>
                     </div>
                     <p>{event.change_summary}</p>

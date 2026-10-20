@@ -1,3 +1,4 @@
+import { noteAgentApiCall } from "@/lib/agent-activity";
 import { agentForWrite, asDate, asStringArray, authenticate, isResponse, readJson } from "@/lib/agent-route";
 import { upsertReport } from "@/lib/mutations";
 import { etTodayISO } from "@/lib/time";
@@ -25,5 +26,6 @@ export async function POST(req: Request) {
     inProgress,
     blocked,
   });
+  await noteAgentApiCall(agent);
   return Response.json(report);
 }

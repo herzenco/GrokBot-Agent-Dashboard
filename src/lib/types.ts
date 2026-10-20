@@ -10,6 +10,7 @@ export type Agent = {
   name: string;
   role: string;
   sort_order: number;
+  last_active: string | null;
 };
 
 export type AgentStatusRow = {

@@ -1,3 +1,4 @@
+import { noteAgentApiCall } from "@/lib/agent-activity";
 import { authenticate, asPriority, asText, agentForWrite, isResponse, jsonError, readJson } from "@/lib/agent-route";
 import { listAgents, listTasks, listTasksForAgent } from "@/lib/data";
 import { createTaskForAgent } from "@/lib/mutations";
@@ -53,5 +54,6 @@ export async function POST(req: Request) {
     priority,
     actor: agent.slug,
   });
+  await noteAgentApiCall(agent);
   return Response.json({ ...task, agent: agent.slug }, { status: 201 });
 }

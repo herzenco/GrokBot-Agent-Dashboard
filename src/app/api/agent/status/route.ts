@@ -1,3 +1,4 @@
+import { noteAgentApiCall } from "@/lib/agent-activity";
 import { agentForWrite, authenticate, isResponse, jsonError, readJson } from "@/lib/agent-route";
 import { parseStatusBody } from "@/lib/live";
 import { recordHeartbeat } from "@/lib/mutations";
@@ -17,5 +18,6 @@ export async function POST(req: Request) {
     state: parsed.state,
     workingOn: parsed.workingOn,
   });
+  await noteAgentApiCall(agent);
   return Response.json(heartbeat);
 }

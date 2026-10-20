@@ -1,8 +1,7 @@
 import type { Agent, AgentStatusRow, LiveState, Mood } from "@/lib/types";
-import { formatEtTime } from "@/lib/time";
 
-/** Hide a heartbeat that has not been refreshed for this long. */
-export const STALE_AFTER_MS = 30 * 60 * 1000;
+/** After this long with no agent API call, the card says "Last active" instead of "Active". */
+export const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 /** How often the signed-in dashboard asks the server for a new snapshot. */
 export const LIVE_POLL_MS = 10_000;
@@ -13,11 +12,12 @@ export type LiveAgentView = {
   agent_id: string;
   slug: string;
   name: string;
-  /** Status to show. Stale and missing heartbeats are idle. */
+  /** Explicit status. A quiet agent keeps working or blocked instead of flipping to idle. */
   state: LiveState;
-  /** Last posted state. Null when the agent has never posted. */
+  /** Last posted state. Null when the agent has never posted one. */
   reported_state: LiveState | null;
   working_on: string;
+  /** Last successful agent API call, not the status-post time. */
   updated_at: string | null;
   stale: boolean;
   focus_label: string;
@@ -62,10 +62,24 @@ export function parseStatusBody(body: Record<string, unknown>): ParsedStatus {
   return { ok: true, state: state.state, workingOn: workingOn.workingOn };
 }
 
-export function isHeartbeatStale(updatedAt: string, now: Date): boolean {
-  const stamp = new Date(updatedAt).getTime();
+export function isLastActiveStale(lastActive: string, now: Date): boolean {
+  const stamp = new Date(lastActive).getTime();
   if (Number.isNaN(stamp)) return true;
   return now.getTime() - stamp >= STALE_AFTER_MS;
+}
+
+export function activityAgeLabel(lastActive: string | null | undefined, now: Date): { label: string; stale: boolean } {
+  if (!lastActive) return { label: "No activity yet", stale: true };
+  const stamp = new Date(lastActive).getTime();
+  if (Number.isNaN(stamp)) return { label: "No activity yet", stale: true };
+  const age = Math.max(0, now.getTime() - stamp);
+  if (age >= STALE_AFTER_MS) {
+    const hours = Math.max(1, Math.floor(age / (60 * 60 * 1000)));
+    return { label: `Last active ${hours} h ago`, stale: true };
+  }
+  const minutes = Math.floor(age / 60000);
+  if (minutes < 1) return { label: "Active just now", stale: false };
+  return { label: `Active ${minutes} min ago`, stale: false };
 }
 
 export function liveStatusLabel(state: LiveState): string {
@@ -87,49 +101,28 @@ export function statusActivitySummary(state: LiveState, workingOn: string): stri
   return "is idle";
 }
 
-function focusLabel(updatedAt: string | null, workingOn: string): string {
-  if (!updatedAt) return "No update yet";
-  if (workingOn) return workingOn;
+function focusLabel(row: AgentStatusRow | undefined): string {
+  if (!row) return "No status posted";
+  if (row.working_on) return row.working_on;
   return "Nothing in progress";
-}
-
-function timeLabel(updatedAt: string | null, stale: boolean): string {
-  if (!updatedAt) return "No heartbeat yet";
-  const formatted = `${formatEtTime(new Date(updatedAt))} ET`;
-  if (stale) return `Stale · last update ${formatted}`;
-  return `Updated ${formatted}`;
 }
 
 export function presentLiveStatus(agents: Agent[], rows: AgentStatusRow[], now = new Date()): LiveAgentView[] {
   const byAgent = new Map(rows.map((row) => [row.agent_id, row]));
   return agents.map((agent) => {
     const row = byAgent.get(agent.id);
-    if (!row) {
-      return {
-        agent_id: agent.id,
-        slug: agent.slug,
-        name: agent.name,
-        state: "idle",
-        reported_state: null,
-        working_on: "",
-        updated_at: null,
-        stale: true,
-        focus_label: "No update yet",
-        time_label: "No heartbeat yet",
-      };
-    }
-    const stale = isHeartbeatStale(row.updated_at, now);
+    const age = activityAgeLabel(agent.last_active, now);
     return {
       agent_id: agent.id,
       slug: agent.slug,
       name: agent.name,
-      state: stale ? "idle" : row.state,
-      reported_state: row.state,
-      working_on: row.working_on,
-      updated_at: row.updated_at,
-      stale,
-      focus_label: focusLabel(row.updated_at, row.working_on),
-      time_label: timeLabel(row.updated_at, stale),
+      state: row?.state ?? "idle",
+      reported_state: row?.state ?? null,
+      working_on: row?.working_on ?? "",
+      updated_at: agent.last_active,
+      stale: age.stale,
+      focus_label: focusLabel(row),
+      time_label: age.label,
     };
   });
 }
