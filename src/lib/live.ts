@@ -68,6 +68,31 @@ export function isLastActiveStale(lastActive: string, now: Date): boolean {
   return now.getTime() - stamp >= STALE_AFTER_MS;
 }
 
+/** Poll only while the tab is visible. A hidden tab resumes on the next visibility change. */
+export function shouldPollNow(visibility: string): boolean {
+  return visibility === "visible";
+}
+
+export function updatedAgoLabel(polledAt: number | null, now: number): string {
+  if (polledAt === null) return "Updated just now";
+  const seconds = Math.max(0, Math.floor((now - polledAt) / 1000));
+  return `Updated ${seconds}s ago`;
+}
+
+/** Newest ISO timestamp among agent presence and activity rows. */
+export function latestIso(values: (string | null | undefined)[]): string | null {
+  let bestMs = Number.NEGATIVE_INFINITY;
+  let best: string | null = null;
+  for (const value of values) {
+    if (!value) continue;
+    const ms = new Date(value).getTime();
+    if (Number.isNaN(ms) || ms < bestMs) continue;
+    bestMs = ms;
+    best = value;
+  }
+  return best;
+}
+
 export function activityAgeLabel(lastActive: string | null | undefined, now: Date): { label: string; stale: boolean } {
   if (!lastActive) return { label: "No activity yet", stale: true };
   const stamp = new Date(lastActive).getTime();

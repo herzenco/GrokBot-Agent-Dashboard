@@ -69,5 +69,6 @@ export type DocumentEvent = {
   agent_id: string;
   action: DocAction;
   change_summary: string;
+  from_path: string | null;
   created_at: string;
 };
