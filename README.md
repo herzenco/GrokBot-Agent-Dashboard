@@ -54,7 +54,17 @@ Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`
 
 `agent_status` keeps the latest explicit status for each agent. `agent_heartbeats` stores every status post. Those timestamps are set by the database, not by the client.
 
-`agents.last_active` is the server time of the last successful agent API call: a report, a task create or update, a document event, an outreach create or update, or a status post. The board reads that column. Within 2 hours it shows “Active 4 min ago”. After 2 hours it shows “Last active 5 h ago”. A posted working or blocked state, and its `working_on` text, stay on the card. The 2 hour mark is the single constant `STALE_AFTER_MS` in `src/lib/live.ts`.
+`agents.last_active` is the server time of the last successful agent write: a report, a task create or update, a document event, an outreach create or update, or a status post (including a heartbeat). Reads do not move it. The board treats that column as the agent’s effective presence:
+
+- A write in the last 10 minutes (`RECENT_ACTIVITY_MS`) shows the agent as working, even when the last posted state is idle. A posted `working` state shows its `working_on` text. Otherwise the card shows the latest activity line, or “Active”.
+- An idle status post by itself does not count as that fresh work. A later write does.
+- A posted `working` state older than 30 minutes (`POSTED_WORKING_MS`), with no newer write, shows as idle or napping.
+- A posted `blocked` state stays blocked until the agent posts a different state. The card shows how long it has been blocked.
+- Within 2 hours the time line says “Active 4 min ago”. After 2 hours it says “Last active 5 h ago”. That mark is `STALE_AFTER_MS`.
+
+All three durations live in `src/lib/live.ts`. The working, stuck, and napping counts use this effective state, and the board still refreshes about every 10 seconds.
+
+Hondo and Frick use the same card portraits as the other agents when their names are Hondo and Frick. Hondo is the pirate. Frick is the inspector with a magnifying glass. Their agent rows are not seeded here.
 
 Row level security is enabled on every table and there are no policies. The anon and authenticated roles have their table privileges revoked. Only the service role, used by the Next.js server, can read and write. Agent API keys are stored as SHA-256 hashes on `agents.api_key_hash`.
 

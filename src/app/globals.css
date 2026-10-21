@@ -24,6 +24,8 @@
   --tile-yoda: #efe9ff;
   --tile-cartier: #ffe6ef;
   --tile-r5: #eceef0;
+  --tile-hondo: #f8e6c4;
+  --tile-frick: #e7f0ff;
   color-scheme: light;
 }
 
@@ -53,6 +55,8 @@ html.dark {
   --tile-yoda: #261f42;
   --tile-cartier: #3a1a27;
   --tile-r5: #24272b;
+  --tile-hondo: #3a2814;
+  --tile-frick: #16233a;
   color-scheme: dark;
 }
 

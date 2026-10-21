@@ -2,18 +2,21 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { ActivityView } from "@/lib/board";
+import { Avatar } from "@/components/avatar";
+import { statusLabel, type ActivityView } from "@/lib/board";
 import {
   LIVE_POLL_MS,
-  activityAgeLabel,
+  effectiveCounts,
   latestIso,
   livePillMood,
   liveStatusLabel,
+  presenceTimeLabel,
   shouldPollNow,
   updatedAgoLabel,
   type LiveAgentView,
 } from "@/lib/live";
 import { formatEtTime } from "@/lib/time";
+import type { Mood } from "@/lib/types";
 
 type LiveBoard = {
   rows: LiveAgentView[];
@@ -124,13 +127,44 @@ export function LiveStatusProvider({
 
 export function LiveSummary() {
   const rows = useContext(LiveContext)?.rows ?? [];
-  const working = rows.filter((row) => row.state === "working").length;
-  const blocked = rows.filter((row) => row.state === "blocked").length;
-  const idle = rows.filter((row) => row.state === "idle").length;
+  const counts = effectiveCounts(rows);
+  const workingWord = counts.working === 1 ? "agent" : "agents";
   return (
-    <p className="live-summary">
-      Right now, {working} working, <span className="stuck-word">{blocked} blocked</span>, {idle} idle.
+    <p className="subhead board-subhead">
+      {counts.working} {workingWord} working, <span className="stuck-word">{counts.stuck} stuck</span>, {counts.napping} napping.
     </p>
+  );
+}
+
+function useLiveAgent(agentId: string): LiveAgentView | undefined {
+  return useContext(LiveContext)?.rows.find((item) => item.agent_id === agentId);
+}
+
+export function LiveAvatar({
+  name,
+  agentId,
+  fallback,
+  size = 60,
+}: {
+  name: string;
+  agentId: string;
+  fallback: Mood;
+  size?: number;
+}) {
+  const row = useLiveAgent(agentId);
+  const mood = row ? livePillMood(row.state) : fallback;
+  return <Avatar name={name} mood={mood} size={size} />;
+}
+
+export function LiveMoodPill({ agentId, fallback }: { agentId: string; fallback: Mood }) {
+  const row = useLiveAgent(agentId);
+  const mood = row ? livePillMood(row.state) : fallback;
+  const label = row ? liveStatusLabel(row.state) : statusLabel(fallback);
+  return (
+    <span className={`pill pill-${mood}`}>
+      <span className="pill-dot" aria-hidden="true" />
+      {label}
+    </span>
   );
 }
 
@@ -154,7 +188,13 @@ export function LiveAgentNow({ agentId }: { agentId: string }) {
   const row = board?.rows.find((item) => item.agent_id === agentId);
   const state = row?.state ?? "idle";
   const clock = board?.now ?? null;
-  const age = clock === null ? null : activityAgeLabel(row?.updated_at, new Date(clock));
+  const age =
+    clock === null
+      ? null
+      : presenceTimeLabel(
+          { state, lastActive: row?.updated_at ?? null, reportedAt: row?.reported_at ?? null },
+          new Date(clock),
+        );
   const timeLabel = age?.label ?? row?.time_label ?? "No activity yet";
   const stale = age ? age.stale : row?.stale !== false;
   return (

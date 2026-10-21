@@ -9,6 +9,8 @@ const IDS: Record<string, string> = {
   Yoda: "yoda",
   Cartier: "cartier",
   "R5-D4": "r5",
+  Hondo: "hondo",
+  Frick: "frick",
 };
 
 const BODY: Record<string, { body: string; dark: string }> = {
@@ -20,6 +22,8 @@ const BODY: Record<string, { body: string; dark: string }> = {
   yoda: { body: "#91A7FF", dark: "#5F3DC4" },
   cartier: { body: "#F2C9A5", dark: "#A61E4D" },
   r5: { body: "#ADB5BD", dark: "#495057" },
+  hondo: { body: "#1C4E80", dark: "#0C2340" },
+  frick: { body: "#3B5BDB", dark: "#1C2A4A" },
 };
 
 const INK = "#1B1D24";
@@ -47,10 +51,15 @@ const FACE: Record<
   yoda: { ex1: 27, ex2: 37, ey: 28, er: 2.2, mx: 32, my: 40, eye: INK, mouthInk: "none", cheeks: false, b: "1.8s" },
   cartier: { ex1: 27, ex2: 37, ey: 23, er: 1.9, mx: 32, my: 32.5, eye: INK, mouthInk: "#7A4B3A", cheeks: true, b: "2.6s" },
   r5: { ex1: 26, ex2: 38, ey: 25, er: 2.6, mx: 32, my: 30, eye: "#51CF66", mouthInk: "none", cheeks: false, b: "1.1s" },
+  hondo: { ex1: 25, ex2: 37, ey: 26, er: 2.2, mx: 33, my: 32, eye: INK, mouthInk: INK, cheeks: false, b: "0.5s" },
+  frick: { ex1: 26, ex2: 37, ey: 29, er: 2.2, mx: 31, my: 35, eye: INK, mouthInk: INK, cheeks: false, b: "1.5s" },
 };
 
 export function avatarId(name: string): string | null {
-  return IDS[name] ?? null;
+  if (IDS[name]) return IDS[name];
+  const folded = name.trim().toLowerCase();
+  if (folded === "hondo" || folded === "frick") return folded;
+  return null;
 }
 
 export function tileVar(name: string): string {
@@ -59,10 +68,11 @@ export function tileVar(name: string): string {
 }
 
 export function avatarPalette(name: string, mood: AvatarMood) {
-  const id = IDS[name] ?? "chopper";
-  const known = Boolean(IDS[name]);
-  const c0 = BODY[id];
-  const f0 = FACE[id];
+  const id = avatarId(name);
+  const known = id !== null;
+  const resolved = id ?? "chopper";
+  const c0 = BODY[resolved];
+  const f0 = FACE[resolved];
   const er = f0.er;
   const closed = (x: number, y: number) => `M${x - er} ${y} Q${x} ${y + er * 0.9} ${x + er} ${y}`;
   let mouth: string;
@@ -70,13 +80,14 @@ export function avatarPalette(name: string, mood: AvatarMood) {
   else if (mood === "idle") mouth = `M${f0.mx - 1.6} ${f0.my + 0.5} h3.2`;
   else mouth = `M${f0.mx - 4} ${f0.my} Q${f0.mx} ${f0.my + 4} ${f0.mx + 4} ${f0.my}`;
   const show: Record<string, "inline" | "none"> = {};
-  for (const key of Object.keys(BODY)) show[key] = key === id && known ? "inline" : "none";
+  for (const key of Object.keys(BODY)) show[key] = key === resolved && known ? "inline" : "none";
   const idle = mood === "idle";
   const moodWord = mood === "blocked" ? "stuck" : mood === "idle" ? "napping" : "working";
   return {
     known,
     label: `${name}, ${moodWord}`,
-    c: { body: c0.body, dark: c0.dark, tile: `var(--tile-${id})` },
+    c: { body: c0.body, dark: c0.dark, tile: `var(--tile-${resolved})` },
+    prop: resolved === "hondo" ? "patch" : resolved === "frick" ? "glass" : "none",
     f: {
       ex1: f0.ex1,
       ex2: f0.ex2,
