@@ -22,7 +22,7 @@ cp .env.example .env.local
 supabase db push
 ```
 
-`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. `20261020140000_document_event_from_path.sql` adds `document_events.from_path`. The three later files insert no sample rows. Apply them before using live status or document moves. This repo does not apply them for you.
+`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. `20261020140000_document_event_from_path.sql` adds `document_events.from_path`. `20261021140000_outreach.sql` adds the `outreach` table. The later files insert no sample rows and no agent or API key. Apply them before using live status, document moves, or the Outreach tab. This repo does not apply them for you.
 
 4. Start the app:
 
@@ -50,15 +50,17 @@ The session cookie is httpOnly, SameSite=Lax, and valid for 30 days. In producti
 
 ## Database
 
-Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`, `agent_status`, `agent_heartbeats`.
+Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`, `agent_status`, `agent_heartbeats`, `outreach`.
 
 `agent_status` keeps the latest explicit status for each agent. `agent_heartbeats` stores every status post. Those timestamps are set by the database, not by the client.
 
-`agents.last_active` is the server time of the last successful agent API call: a report, a task create or update, a document event, or a status post. The board reads that column. Within 2 hours it shows “Active 4 min ago”. After 2 hours it shows “Last active 5 h ago”. A posted working or blocked state, and its `working_on` text, stay on the card. The 2 hour mark is the single constant `STALE_AFTER_MS` in `src/lib/live.ts`.
+`agents.last_active` is the server time of the last successful agent API call: a report, a task create or update, a document event, an outreach create or update, or a status post. The board reads that column. Within 2 hours it shows “Active 4 min ago”. After 2 hours it shows “Last active 5 h ago”. A posted working or blocked state, and its `working_on` text, stay on the card. The 2 hour mark is the single constant `STALE_AFTER_MS` in `src/lib/live.ts`.
 
 Row level security is enabled on every table and there are no policies. The anon and authenticated roles have their table privileges revoked. Only the service role, used by the Next.js server, can read and write. Agent API keys are stored as SHA-256 hashes on `agents.api_key_hash`.
 
 `documents` is an audit log: title, vault path, optional link, and a history of created / edited / moved / archived events. The app does not read vault files. `document_events.from_path` stores the previous vault path on a moved event and is null for every other action.
+
+`outreach` is the prospecting log. Hondo (`hondo`, role Outbound Prospecting) is the agent who writes it. His `agents` row and API key are inserted outside the migrations. The Outreach tab lists every row for a signed-in user and refreshes about every 10 seconds.
 
 ## API keys
 
@@ -70,7 +72,7 @@ npm run keys:generate
 
 If `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set (or present in `.env.local`), the script reads the current agent slugs. Otherwise it uses the eight seeded slugs. Run the printed SQL in Supabase, and keep the plaintext keys somewhere outside this repository.
 
-An agent key can only see and change that agent's tasks, documents, and status. `ADMIN_API_KEY` can act for any agent. Pass the agent slug in the JSON body (`agent`) or, for the task list, as `?agent=`.
+An agent key can only see and change that agent's tasks, documents, outreach, and status. `ADMIN_API_KEY` can act for any agent. Pass the agent slug in the JSON body (`agent`) or, for a list, as `?agent=`.
 
 ## Agent API
 
@@ -186,6 +188,91 @@ curl -s -X POST http://localhost:3000/api/agent/documents \
   }'
 ```
 
+### Log outreach
+
+`POST /api/agent/outreach` creates a row and returns 201 with its `id`. `PATCH /api/agent/outreach/{id}` updates one. `GET /api/agent/outreach` lists rows.
+
+Header: `Authorization: Bearer <key>` and, for writes, `Content-Type: application/json`.
+
+`channel` is `email`, `linkedin`, or `other`. `status` is `drafted`, `sent`, `replied`, or `meeting`.
+
+Create body:
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `person_name` | yes | 200 characters or fewer |
+| `channel` | yes | `email`, `linkedin`, or `other` |
+| `status` | yes | `drafted`, `sent`, `replied`, or `meeting` |
+| `email` | one of email or linkedin_url | An email address, 320 characters or fewer |
+| `linkedin_url` | one of email or linkedin_url | `http` or `https`, 500 characters or fewer |
+| `company` | no | 200 characters or fewer |
+| `title` | no | Role at the company, 200 characters or fewer |
+| `message` | no | Full text or a summary, 8000 characters or fewer |
+| `source_url` | no | `http` or `https`, 1000 characters or fewer |
+| `contacted_at` | no | ISO timestamp. Omitted means the server time of the request |
+| `agent` | admin key only | Agent slug. An agent key may omit it and can only write as itself |
+
+A patch sends only the fields that change. Clearing `email` is allowed when `linkedin_url` remains, and the reverse. Clearing both returns 400. `contacted_at` cannot be cleared. Only the owning agent or the admin key can patch a row. Another agent's key gets 404 `Outreach not found`. The admin key can pass `agent` to move the row to a different agent.
+
+List query: `status` filters to one status. `agent` filters to one slug. An agent key always sees only its own rows. Asking for another slug returns 403.
+
+Each write sets `agents.last_active` and adds an activity row for that agent. The list does not.
+
+Responses:
+
+| Status | Body |
+| --- | --- |
+| 201 | The created row, including `id` and `agent` |
+| 200 | `PATCH` returns the updated row. `GET` returns `{ "items": [ ... ] }` |
+| 400 | `{ "error" }` when the JSON, an enum, or a contact field is invalid |
+| 401 | `{ "error": "Unauthorized" }` when the bearer key is missing or unknown |
+| 403 | `{ "error" }` when an agent key tries to act for or list someone else |
+| 404 | `{ "error": "Unknown agent" }` or `{ "error": "Outreach not found" }` |
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/outreach \
+  -H "Authorization: Bearer $HONDO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "person_name": "Ada Lovelace",
+    "company": "Analytical Engines",
+    "title": "Founder",
+    "email": "ada@example.com",
+    "linkedin_url": "https://www.linkedin.com/in/ada",
+    "channel": "email",
+    "status": "sent",
+    "message": "Asked for a short call next week.",
+    "source_url": "https://example.com/ada"
+  }'
+```
+
+Admin, acting as Hondo:
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/outreach \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent":"hondo","person_name":"Grace Hopper","linkedin_url":"https://www.linkedin.com/in/grace","channel":"linkedin","status":"drafted"}'
+```
+
+Update a status:
+
+```bash
+curl -s -X PATCH http://localhost:3000/api/agent/outreach/OUTREACH_ID \
+  -H "Authorization: Bearer $HONDO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"replied"}'
+```
+
+List sent outreach:
+
+```bash
+curl -s "http://localhost:3000/api/agent/outreach?status=sent" \
+  -H "Authorization: Bearer $HONDO_KEY"
+```
+
+The signed-in Outreach tab shows name, company, title, contact, channel, date, a status pill, a source link, and a message preview. Filters are status and agent. The table polls `GET /api/live/outreach` about every 10 seconds, pauses while the tab is hidden, and polls again when the tab is visible. That route uses the session cookie.
+
 ### Post a status heartbeat
 
 `POST /api/agent/status`
@@ -200,7 +287,7 @@ Body fields:
 | `working_on` | when `state` is `working` or `blocked` | What the agent is doing now. A single line, 200 characters or fewer. Optional for `idle`; blank is stored as an empty string. |
 | `agent` | admin key only | Agent slug, same rule as the other write routes. An agent key may omit it and can only post for itself. |
 
-The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. It also sets `agents.last_active`. The same presence update happens after a successful report, task create, task update, or document event, so a chat turn does not need its own status post.
+The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. It also sets `agents.last_active`. The same presence update happens after a successful report, task create, task update, document event, or outreach create or update, so a chat turn does not need its own status post.
 
 The card keeps an explicit `working` or `blocked` state and the `working_on` text. From `last_active` it shows “Active 4 min ago” until that time is 2 hours old, then “Last active 5 h ago”.
 
@@ -234,7 +321,7 @@ curl -s -X POST http://localhost:3000/api/agent/status \
   -d '{"agent":"chopper","state":"blocked","working_on":"Waiting on the Coral Gables citations"}'
 ```
 
-A report, task change, document event, or status post writes an `activity` row, so the live feed shows that call. The actor is the agent slug. With the admin key, pass `agent`: the document event and the activity row are stored as that agent, and the Documents tab shows that name. A task update that changes nothing still refreshes `last_active` and does not add an activity row. Edits from the dashboard stay attributed to `tito` and do not move `last_active`.
+A report, task change, document event, outreach create or update, or status post writes an `activity` row, so the live feed shows that call. The actor is the agent slug. With the admin key, pass `agent`: the document event, the outreach row, and the activity row are stored as that agent. A task update that changes nothing still refreshes `last_active` and does not add an activity row. Edits from the dashboard stay attributed to `tito` and do not move `last_active`.
 
 ## Checks
 

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getTask, listAgents } from "@/lib/data";
 import { planDocumentMove } from "@/lib/documents";
 import { statusActivitySummary } from "@/lib/live";
+import { outreachActivitySummary, type OutreachPatch, type OutreachRow, type OutreachWrite } from "@/lib/outreach";
 import type { Agent, DocAction, LiveState, Priority, Task, TaskStatus } from "@/lib/types";
 
 const TASK_COLUMNS =
@@ -387,6 +388,67 @@ export async function logDocumentEvent(input: {
     document: { ...(existing as Record<string, unknown>), agent: input.agent.slug },
     event: event as Record<string, unknown>,
   };
+}
+
+const OUTREACH_COLUMNS =
+  "id,agent_id,person_name,company,title,email,linkedin_url,channel,contacted_at,message,status,source_url,created_at,updated_at";
+
+export async function createOutreach(input: { agent: Agent; value: OutreachWrite }): Promise<OutreachRow> {
+  const { data, error } = await db()
+    .from("outreach")
+    .insert({
+      agent_id: input.agent.id,
+      person_name: input.value.personName,
+      company: input.value.company,
+      title: input.value.title,
+      email: input.value.email,
+      linkedin_url: input.value.linkedinUrl,
+      channel: input.value.channel,
+      contacted_at: input.value.contactedAt,
+      message: input.value.message,
+      status: input.value.status,
+      source_url: input.value.sourceUrl,
+    })
+    .select(OUTREACH_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  const row = data as OutreachRow;
+  await writeActivity({
+    actor: input.agent.slug,
+    verb: "outreach_logged",
+    summary: outreachActivitySummary("logged", row),
+  });
+  return row;
+}
+
+export async function updateOutreach(
+  id: string,
+  patch: OutreachPatch & { agentId?: string },
+  actor: Agent,
+  previousStatus: OutreachRow["status"],
+): Promise<OutreachRow> {
+  const changes: Record<string, string | null> = {};
+  if (patch.personName !== undefined) changes.person_name = patch.personName;
+  if (patch.company !== undefined) changes.company = patch.company;
+  if (patch.title !== undefined) changes.title = patch.title;
+  if (patch.email !== undefined) changes.email = patch.email;
+  if (patch.linkedinUrl !== undefined) changes.linkedin_url = patch.linkedinUrl;
+  if (patch.channel !== undefined) changes.channel = patch.channel;
+  if (patch.contactedAt !== undefined) changes.contacted_at = patch.contactedAt;
+  if (patch.message !== undefined) changes.message = patch.message;
+  if (patch.status !== undefined) changes.status = patch.status;
+  if (patch.sourceUrl !== undefined) changes.source_url = patch.sourceUrl;
+  if (patch.agentId !== undefined) changes.agent_id = patch.agentId;
+
+  const { data, error } = await db().from("outreach").update(changes).eq("id", id).select(OUTREACH_COLUMNS).single();
+  if (error) throw new Error(error.message);
+  const row = data as OutreachRow;
+  await writeActivity({
+    actor: actor.slug,
+    verb: "outreach_updated",
+    summary: outreachActivitySummary("updated", row, previousStatus),
+  });
+  return row;
 }
 
 export async function agentById(id: string): Promise<Agent | null> {

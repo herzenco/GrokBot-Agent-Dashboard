@@ -34,7 +34,7 @@ export function Shell({
   agents,
   children,
 }: {
-  active: "board" | "reports" | "documents";
+  active: "board" | "reports" | "documents" | "outreach";
   agents: ShellAgent[];
   children: React.ReactNode;
 }) {
@@ -83,6 +83,9 @@ export function Shell({
               </Link>
               <Link href="/documents" className={active === "documents" ? "nav-link active" : "nav-link"} aria-current={active === "documents" ? "page" : undefined}>
                 Documents
+              </Link>
+              <Link href="/outreach" className={active === "outreach" ? "nav-link active" : "nav-link"} aria-current={active === "outreach" ? "page" : undefined}>
+                Outreach
               </Link>
             </nav>
             <div className="header-actions">
