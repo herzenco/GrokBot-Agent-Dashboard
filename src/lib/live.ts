@@ -3,6 +3,18 @@ import type { Agent, AgentStatusRow, LiveState, Mood } from "@/lib/types";
 /** After this long with no agent API call, the card says "Last active" instead of "Active". */
 export const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
+/** A write this recent counts as working, even when the posted state is idle. */
+export const RECENT_ACTIVITY_MS = 10 * 60 * 1000;
+
+/** A posted working state older than this, with no newer write, is not working. */
+export const POSTED_WORKING_MS = 30 * 60 * 1000;
+
+/**
+ * Status posts set agent_status.updated_at and then agents.last_active a moment later.
+ * A gap inside this window is the same write, not a later one.
+ */
+export const STATUS_WRITE_SKEW_MS = 15_000;
+
 /** How often the signed-in dashboard asks the server for a new snapshot. */
 export const LIVE_POLL_MS = 10_000;
 
@@ -12,16 +24,24 @@ export type LiveAgentView = {
   agent_id: string;
   slug: string;
   name: string;
-  /** Explicit status. A quiet agent keeps working or blocked instead of flipping to idle. */
+  /** Working, blocked, or idle after recent writes are taken into account. */
   state: LiveState;
   /** Last posted state. Null when the agent has never posted one. */
   reported_state: LiveState | null;
+  /** When the posted state was saved. */
+  reported_at: string | null;
   working_on: string;
-  /** Last successful agent API call, not the status-post time. */
+  /** Last successful agent API call, not only the status-post time. */
   updated_at: string | null;
   stale: boolean;
   focus_label: string;
   time_label: string;
+};
+
+export type ActivitySnippet = {
+  actor: string;
+  summary: string;
+  created_at: string;
 };
 
 export type ParsedStatus =
@@ -93,6 +113,107 @@ export function latestIso(values: (string | null | undefined)[]): string | null 
   return best;
 }
 
+function stampMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const stamp = new Date(iso).getTime();
+  return Number.isNaN(stamp) ? null : stamp;
+}
+
+export function ageMs(iso: string | null | undefined, now: Date): number | null {
+  const stamp = stampMs(iso);
+  if (stamp === null) return null;
+  return Math.max(0, now.getTime() - stamp);
+}
+
+/** True when last_active is a write after the posted status, not the status post itself. */
+export function activityAfterStatus(lastActive: string | null, reportedAt: string | null): boolean {
+  const active = stampMs(lastActive);
+  if (active === null) return false;
+  const reported = stampMs(reportedAt);
+  if (reported === null) return true;
+  return active > reported + STATUS_WRITE_SKEW_MS;
+}
+
+export function latestActivitySummary(snippets: ActivitySnippet[] | undefined, actor: string): string | null {
+  if (!snippets?.length) return null;
+  let best: { at: number; summary: string } | null = null;
+  for (const row of snippets) {
+    if (row.actor !== actor || !row.summary.trim()) continue;
+    const at = stampMs(row.created_at);
+    if (at === null) continue;
+    if (!best || at >= best.at) best = { at, summary: row.summary.trim() };
+  }
+  return best?.summary ?? null;
+}
+
+/**
+ * Blocked stays until a different state is posted.
+ * Any other write in the last 10 minutes counts as working.
+ * A posted working state counts for 30 minutes unless a newer write already refreshed it.
+ * last_active is that write time: report, task, document, outreach, and status/heartbeat.
+ */
+export function deriveEffectiveState(
+  input: {
+    reportedState: LiveState | null;
+    reportedAt: string | null;
+    lastActive: string | null;
+    workingOn: string;
+    latestActivity: string | null;
+  },
+  now: Date,
+): { state: LiveState; focus: string } {
+  const { reportedState, workingOn, latestActivity } = input;
+  if (reportedState === "blocked") {
+    return { state: "blocked", focus: workingOn || "Blocked" };
+  }
+
+  const activeAge = ageMs(input.lastActive, now);
+  const reportedAge = ageMs(input.reportedAt, now);
+  const recentWrite = activeAge !== null && activeAge < RECENT_ACTIVITY_MS;
+  const laterThanStatus = activityAfterStatus(input.lastActive, input.reportedAt);
+  const busyNow = recentWrite && (reportedState !== "idle" || laterThanStatus);
+  const freshWorking = reportedState === "working" && reportedAge !== null && reportedAge < POSTED_WORKING_MS;
+
+  if (busyNow || freshWorking) {
+    if (reportedState === "working" && workingOn) return { state: "working", focus: workingOn };
+    if (latestActivity) return { state: "working", focus: latestActivity };
+    return { state: "working", focus: "Active" };
+  }
+
+  return {
+    state: "idle",
+    focus: reportedState ? "Nothing in progress" : "No status posted",
+  };
+}
+
+export function presenceTimeLabel(
+  input: { state: LiveState; lastActive: string | null; reportedAt: string | null },
+  now: Date,
+): { label: string; stale: boolean } {
+  if (input.state === "blocked") {
+    const age = ageMs(input.reportedAt ?? input.lastActive, now);
+    if (age === null) return { label: "Blocked", stale: true };
+    if (age < 60_000) return { label: "Blocked just now", stale: false };
+    if (age < STALE_AFTER_MS) return { label: `Blocked ${Math.floor(age / 60_000)} min`, stale: false };
+    const hours = Math.max(1, Math.floor(age / (60 * 60 * 1000)));
+    return { label: `Blocked ${hours} h`, stale: true };
+  }
+
+  const base = activityAgeLabel(input.lastActive, now);
+  if (input.state === "idle" && input.lastActive && base.label.startsWith("Active ")) {
+    return { label: base.label.replace("Active ", "Last active "), stale: base.stale };
+  }
+  return base;
+}
+
+export function effectiveCounts(views: { state: LiveState }[]): { working: number; stuck: number; napping: number } {
+  return {
+    working: views.filter((view) => view.state === "working").length,
+    stuck: views.filter((view) => view.state === "blocked").length,
+    napping: views.filter((view) => view.state === "idle").length,
+  };
+}
+
 export function activityAgeLabel(lastActive: string | null | undefined, now: Date): { label: string; stale: boolean } {
   if (!lastActive) return { label: "No activity yet", stale: true };
   const stamp = new Date(lastActive).getTime();
@@ -126,28 +247,43 @@ export function statusActivitySummary(state: LiveState, workingOn: string): stri
   return "is idle";
 }
 
-function focusLabel(row: AgentStatusRow | undefined): string {
-  if (!row) return "No status posted";
-  if (row.working_on) return row.working_on;
-  return "Nothing in progress";
-}
-
-export function presentLiveStatus(agents: Agent[], rows: AgentStatusRow[], now = new Date()): LiveAgentView[] {
+export function presentLiveStatus(
+  agents: Agent[],
+  rows: AgentStatusRow[],
+  now = new Date(),
+  activity: ActivitySnippet[] = [],
+): LiveAgentView[] {
   const byAgent = new Map(rows.map((row) => [row.agent_id, row]));
   return agents.map((agent) => {
     const row = byAgent.get(agent.id);
-    const age = activityAgeLabel(agent.last_active, now);
+    const reportedState = row?.state ?? null;
+    const workingOn = row?.working_on ?? "";
+    const derived = deriveEffectiveState(
+      {
+        reportedState,
+        reportedAt: row?.updated_at ?? null,
+        lastActive: agent.last_active,
+        workingOn,
+        latestActivity: latestActivitySummary(activity, agent.slug),
+      },
+      now,
+    );
+    const time = presenceTimeLabel(
+      { state: derived.state, lastActive: agent.last_active, reportedAt: row?.updated_at ?? null },
+      now,
+    );
     return {
       agent_id: agent.id,
       slug: agent.slug,
       name: agent.name,
-      state: row?.state ?? "idle",
-      reported_state: row?.state ?? null,
-      working_on: row?.working_on ?? "",
+      state: derived.state,
+      reported_state: reportedState,
+      reported_at: row?.updated_at ?? null,
+      working_on: workingOn,
       updated_at: agent.last_active,
-      stale: age.stale,
-      focus_label: focusLabel(row),
-      time_label: age.label,
+      stale: time.stale,
+      focus_label: derived.focus,
+      time_label: time.label,
     };
   });
 }

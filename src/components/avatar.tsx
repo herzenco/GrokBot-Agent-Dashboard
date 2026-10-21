@@ -34,6 +34,7 @@ export function Avatar({
     idleShow,
     orange,
     zz,
+    prop,
   } = model;
 
   return (
@@ -189,6 +190,33 @@ export function Avatar({
               </circle>
             </g>
 
+            <g display={show.hondo}>
+              <path d="M14 64 V50 Q14 42 24 41 H40 Q50 42 50 50 V64 Z" fill={c.body}></path>
+              <path d="M24 41 L32 54 L40 41 Z" fill={c.dark}></path>
+              <circle cx="32" cy="47" r="1.3" fill="#FCC419"></circle>
+              <circle cx="32" cy="52" r="1.3" fill="#FCC419"></circle>
+              <circle cx="32" cy="57" r="1.3" fill="#FCC419"></circle>
+              <path d="M18 63 V52" stroke="#FCC419" strokeWidth="2.2" strokeLinecap="round"></path>
+              <path d="M46 63 V52" stroke="#FCC419" strokeWidth="2.2" strokeLinecap="round"></path>
+              <circle cx="32" cy="28" r="13.2" fill="#F2C9A5"></circle>
+              <path d="M21 33 Q26 46 32 48 Q38 46 43 33 Q37 39 32 40 Q27 39 21 33 Z" fill="#5C3A2A"></path>
+              <path d="M8 22 Q16 7 32 8 Q48 7 56 22 L49 16 Q32 12 15 16 Z" fill={c.dark}></path>
+              <path d="M16 17.5 H48" stroke="#FCC419" strokeWidth="2.4" strokeLinecap="round"></path>
+              <circle cx="47" cy="31" r="1.7" fill="#FCC419"></circle>
+              <path d="M47 32.4 V36" stroke="#FCC419" strokeWidth="1.3" strokeLinecap="round"></path>
+            </g>
+
+            <g display={show.frick}>
+              <path d="M12 64 V48 Q16 40 32 40 Q48 40 52 48 V64 Z" fill="#F8F9FA"></path>
+              <path d="M27.5 40 L32 53 L36.5 40 Z" fill={c.body}></path>
+              <rect x="30.4" y="41" width="3.2" height="12" rx="1" fill="#FFFFFF"></rect>
+              <circle cx="32" cy="28" r="13" fill="#F2C9A5"></circle>
+              <path d="M19 25 Q20 12 32 12 Q44 12 45 25 Q38 16 32 16 Q26 16 19 25 Z" fill={c.dark}></path>
+              <rect x="4" y="42" width="14" height="18" rx="2" fill="#FFF9DB" stroke={c.dark} strokeWidth="1.3"></rect>
+              <path d="M7 48 H15 M7 52 H15 M7 56 H12" stroke={c.dark} strokeWidth="1.15" strokeLinecap="round"></path>
+              <path d="M7 45.4 L9.2 47.4 L12.4 43.6" fill="none" stroke="#2F9E44" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"></path>
+            </g>
+
             <g display={show.r5}>
               <rect x="28" y="46" width="8" height="7" fill={c.dark}></rect>
               <rect x="19" y="52" width="26" height="5" rx="2.5" fill={c.dark}></rect>
@@ -221,6 +249,18 @@ export function Avatar({
               <path d={f.closed2}></path>
             </g>
             <path d={mouth} fill="none" stroke={f.mouthInk} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"></path>
+            {prop === "patch" ? (
+              <g>
+                <path d={`M14 ${f.ey - 7} Q${f.ex1} ${f.ey - 3} ${f.ex1 + 5} ${f.ey - 6}`} fill="none" stroke="#1A1A1A" strokeWidth="1.5" strokeLinecap="round"></path>
+                <ellipse cx={f.ex1} cy={f.ey} rx={f.er + 2.6} ry={f.er + 1.8} fill="#1A1A1A"></ellipse>
+              </g>
+            ) : null}
+            {prop === "glass" ? (
+              <g>
+                <circle cx={f.ex2} cy={f.ey} r={f.er + 4.8} fill="#D0EBFF" fillOpacity="0.28" stroke="#1B1D24" strokeWidth="1.8"></circle>
+                <path d={`M${f.ex2 + f.er + 3.2} ${f.ey + f.er + 2.4} l8 9`} stroke="#1B1D24" strokeWidth="2.3" strokeLinecap="round"></path>
+              </g>
+            ) : null}
           </g>
 
           <g display={blockedShow}>

@@ -2,28 +2,29 @@ import Link from "next/link";
 import { ActivityPanel } from "@/components/activity-panel";
 import { Avatar } from "@/components/avatar";
 import { CheckIcon } from "@/components/icons";
-import { LiveAgentNow, LiveIndicator, LiveStatusProvider, LiveSummary } from "@/components/live-status";
+import { LiveAgentNow, LiveAvatar, LiveIndicator, LiveMoodPill, LiveStatusProvider, LiveSummary } from "@/components/live-status";
 import { Shell, Split } from "@/components/shell";
 import { tileVar } from "@/lib/avatar-model";
-import { statusLabel } from "@/lib/board";
 import { loadBoard } from "@/lib/chrome";
-import { listAgentStatus } from "@/lib/data";
+import { listActivity, listAgentStatus } from "@/lib/data";
 import { presentLiveStatus } from "@/lib/live";
 import { etHour, formatEtDateline, greetingForHour } from "@/lib/time";
 
 export default async function BoardPage() {
   const now = new Date();
-  const [{ agents, cards, stats, activity }, statuses] = await Promise.all([loadBoard(now), listAgentStatus()]);
-  const live = presentLiveStatus(agents, statuses, now);
-  const workingWord = stats.working === 1 ? "agent" : "agents";
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const until = new Date(now.getTime() + 60_000).toISOString();
+  const [{ agents, cards, stats, activity }, statuses, recentActivity] = await Promise.all([
+    loadBoard(now),
+    listAgentStatus(),
+    listActivity(since, until),
+  ]);
+  const live = presentLiveStatus(agents, statuses, now, recentActivity);
 
   return (
     <Shell active="board" agents={agents}>
       <p className="dateline">{formatEtDateline(now)}</p>
       <h1 className="greeting">{greetingForHour(etHour(now))}, Tito.</h1>
-      <p className="subhead board-subhead">
-        {stats.working} {workingWord} working, <span className="stuck-word">{stats.stuck} stuck</span>, {stats.napping} napping.
-      </p>
       <LiveStatusProvider initial={live} initialActivity={activity}>
         <div className="live-bar">
           <LiveSummary />
@@ -76,15 +77,12 @@ export default async function BoardPage() {
                 return (
                   <Link key={card.agent.id} href={`/agents/${card.agent.slug}`} className="card">
                     <div className="card-head" style={{ background: tileVar(card.agent.name) }}>
-                      <Avatar name={card.agent.name} mood={card.mood} size={60} />
+                      <LiveAvatar name={card.agent.name} agentId={card.agent.id} fallback={card.mood} size={60} />
                       <div className="card-id">
                         <div className="card-name">{card.agent.name}</div>
                         <div className="card-role">{card.agent.role}</div>
                       </div>
-                      <span className={`pill pill-${card.mood}`}>
-                        <span className="pill-dot" aria-hidden="true" />
-                        {statusLabel(card.mood)}
-                      </span>
+                      <LiveMoodPill agentId={card.agent.id} fallback={card.mood} />
                     </div>
                     <div className="card-body">
                       <LiveAgentNow agentId={card.agent.id} />

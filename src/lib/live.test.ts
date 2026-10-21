@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  POSTED_WORKING_MS,
+  RECENT_ACTIVITY_MS,
   STALE_AFTER_MS,
   activityAgeLabel,
+  deriveEffectiveState,
+  effectiveCounts,
   isLastActiveStale,
   latestIso,
   parseStatusBody,
@@ -126,7 +130,7 @@ describe("presence age", () => {
       reported_state: "blocked",
       stale: true,
       focus_label: "Waiting on Matt",
-      time_label: "Last active 5 h ago",
+      time_label: "Blocked 5 h",
     });
   });
 
@@ -149,11 +153,192 @@ describe("presence age", () => {
     );
     expect(view.focus_label).toBe("Nothing in progress");
     expect(view.state).toBe("idle");
-    expect(view.time_label).toBe("Active just now");
+    expect(view.time_label).toBe("Last active just now");
     expect(statusActivitySummary("working", "Weekly priorities memo")).toBe("is working on “Weekly priorities memo”");
     expect(statusActivitySummary("blocked", "Waiting on Matt")).toBe("is blocked on “Waiting on Matt”");
     expect(statusActivitySummary("idle", "")).toBe("is idle");
     expect(statusActivitySummary("idle", "Back at 3")).toBe("is idle · “Back at 3”");
+  });
+});
+
+describe("effective state", () => {
+  const minute = 60 * 1000;
+
+  function at(msAgo: number): string {
+    return new Date(now.getTime() - msAgo).toISOString();
+  }
+
+  it("counts a recent write as working even when the posted state is idle", () => {
+    const postedAt = at(2 * 60 * minute);
+    const activeAt = at(4 * minute);
+    const derived = deriveEffectiveState(
+      {
+        reportedState: "idle",
+        reportedAt: postedAt,
+        lastActive: activeAt,
+        workingOn: "",
+        latestActivity: "logged outreach to Ada Lovelace",
+      },
+      now,
+    );
+    expect(derived).toEqual({ state: "working", focus: "logged outreach to Ada Lovelace" });
+
+    const [view] = presentLiveStatus(
+      [{ ...agents[0], last_active: activeAt }],
+      [row({ agent_id: "a", state: "idle", working_on: "", updated_at: postedAt })],
+      now,
+      [{ actor: "roger", summary: "logged outreach to Ada Lovelace", created_at: activeAt }],
+    );
+    expect(view.state).toBe("working");
+    expect(view.focus_label).toBe("logged outreach to Ada Lovelace");
+    expect(view.time_label).toBe("Active 4 min ago");
+  });
+
+  it("uses working_on when the posted state is working", () => {
+    expect(
+      deriveEffectiveState(
+        {
+          reportedState: "working",
+          reportedAt: at(4 * minute),
+          lastActive: at(4 * minute),
+          workingOn: "Weekly priorities memo",
+          latestActivity: "posted today’s report",
+        },
+        now,
+      ),
+    ).toEqual({ state: "working", focus: "Weekly priorities memo" });
+  });
+
+  it("says Active when a recent write has no posted focus and no activity line", () => {
+    expect(
+      deriveEffectiveState(
+        {
+          reportedState: null,
+          reportedAt: null,
+          lastActive: at(2 * minute),
+          workingOn: "",
+          latestActivity: null,
+        },
+        now,
+      ),
+    ).toEqual({ state: "working", focus: "Active" });
+  });
+
+  it("drops a working post older than 30 minutes when nothing newer arrived", () => {
+    const old = at(POSTED_WORKING_MS);
+    expect(
+      deriveEffectiveState(
+        {
+          reportedState: "working",
+          reportedAt: old,
+          lastActive: old,
+          workingOn: "Weekly priorities memo",
+          latestActivity: "is working on “Weekly priorities memo”",
+        },
+        now,
+      ),
+    ).toEqual({ state: "idle", focus: "Nothing in progress" });
+    expect(POSTED_WORKING_MS).toBe(30 * minute);
+  });
+
+  it("keeps a working post that is still inside 30 minutes", () => {
+    const posted = at(20 * minute);
+    expect(
+      deriveEffectiveState(
+        {
+          reportedState: "working",
+          reportedAt: posted,
+          lastActive: posted,
+          workingOn: "Weekly priorities memo",
+          latestActivity: null,
+        },
+        now,
+      ),
+    ).toEqual({ state: "working", focus: "Weekly priorities memo" });
+  });
+
+  it("treats the 10 minute boundary as no longer recent", () => {
+    expect(RECENT_ACTIVITY_MS).toBe(10 * minute);
+    expect(
+      deriveEffectiveState(
+        {
+          reportedState: "idle",
+          reportedAt: at(3 * 60 * minute),
+          lastActive: at(RECENT_ACTIVITY_MS),
+          workingOn: "",
+          latestActivity: "edited “Weekly priorities”",
+        },
+        now,
+      ).state,
+    ).toBe("idle");
+    expect(
+      deriveEffectiveState(
+        {
+          reportedState: "idle",
+          reportedAt: at(3 * 60 * minute),
+          lastActive: at(RECENT_ACTIVITY_MS - 1),
+          workingOn: "",
+          latestActivity: "edited “Weekly priorities”",
+        },
+        now,
+      ).state,
+    ).toBe("working");
+  });
+
+  it("does not treat an idle status post as fresh work", () => {
+    const posted = at(minute);
+    expect(
+      deriveEffectiveState(
+        {
+          reportedState: "idle",
+          reportedAt: posted,
+          lastActive: new Date(now.getTime() - minute + 500).toISOString(),
+          workingOn: "",
+          latestActivity: "is idle",
+        },
+        now,
+      ),
+    ).toEqual({ state: "idle", focus: "Nothing in progress" });
+  });
+
+  it("keeps blocked until the posted state changes, and shows that age", () => {
+    const blockedAt = at(90 * minute);
+    const derived = deriveEffectiveState(
+      {
+        reportedState: "blocked",
+        reportedAt: blockedAt,
+        lastActive: at(minute),
+        workingOn: "Waiting on Matt",
+        latestActivity: "logged outreach to Ada Lovelace",
+      },
+      now,
+    );
+    expect(derived).toEqual({ state: "blocked", focus: "Waiting on Matt" });
+
+    const [view] = presentLiveStatus(
+      [{ ...agents[1], last_active: at(minute) }],
+      [row({ agent_id: "b", state: "blocked", working_on: "Waiting on Matt", updated_at: blockedAt })],
+      now,
+      [{ actor: "chopper", summary: "logged outreach to Ada Lovelace", created_at: at(minute) }],
+    );
+    expect(view.state).toBe("blocked");
+    expect(view.time_label).toBe("Blocked 90 min");
+    expect(view.focus_label).toBe("Waiting on Matt");
+  });
+
+  it("counts the summary from the effective state", () => {
+    const views = presentLiveStatus(
+      [
+        { ...agents[0], last_active: at(2 * minute) },
+        { ...agents[1], last_active: at(3 * 60 * minute) },
+      ],
+      [
+        row({ agent_id: "a", state: "idle", working_on: "", updated_at: at(3 * 60 * minute) }),
+        row({ agent_id: "b", state: "blocked", working_on: "Waiting", updated_at: at(3 * 60 * minute) }),
+      ],
+      now,
+    );
+    expect(effectiveCounts(views)).toEqual({ working: 1, stuck: 1, napping: 0 });
   });
 });
 
