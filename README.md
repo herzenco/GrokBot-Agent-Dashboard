@@ -62,7 +62,7 @@ Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`
 - A posted `blocked` state stays blocked until the agent posts a different state. The card shows how long it has been blocked.
 - Within 2 hours the time line says “Active 4 min ago”. After 2 hours it says “Last active 5 h ago”. That mark is `STALE_AFTER_MS`.
 
-All three durations live in `src/lib/live.ts`. The working, stuck, and napping counts use this effective state, and the board still refreshes about every 10 seconds.
+All three durations live in `src/lib/live.ts`. The home board, agent pages, reports, documents, activity-feed avatars, speech bubbles, and the working / stuck / napping counts all use this effective state. Signed-in pages poll `GET /api/live/status` about every 10 seconds and update in place.
 
 Hondo and Frick use the same card portraits as the other agents when their names are Hondo and Frick. Hondo is the pirate. Frick is the inspector with a magnifying glass. Their agent rows are not seeded here.
 
@@ -303,7 +303,7 @@ The card keeps an explicit `working` or `blocked` state and the `working_on` tex
 
 The signed-in board polls server routes about every 10 seconds. Those routes use the session cookie. The browser does not talk to Supabase.
 
-The board shows a Live indicator with “Updated 3s ago” for the last successful poll and the latest activity time across every agent (the newest `last_active` or feed timestamp, in Eastern Time). Agent cards, the daily snapshot (counts, done today, mood), and the activity feed refresh on that same cadence without a full reload. “Active 4 min ago” advances in the browser between polls. Polling pauses while the tab is hidden and runs again as soon as the tab is visible.
+The board shows a Live indicator with “Updated 3s ago” for the last successful poll and the latest activity time across every agent (the newest `last_active` or feed timestamp, in Eastern Time). Agent cards (portrait, pill, and speech bubble), the daily snapshot (counts, done today, mood), the activity feed, and the same portraits on the agent, reports, and documents pages refresh on that cadence without a full reload. “Active 4 min ago” advances in the browser between polls. Polling pauses while the tab is hidden and runs again as soon as the tab is visible.
 
 Responses:
 

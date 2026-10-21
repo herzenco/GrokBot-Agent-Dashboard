@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { createContext, useContext, useEffect, useState } from "react";
 import { ActivityIcon, LogoMark, PlusIcon, ThemeToggle } from "@/components/icons";
+import { LiveStatusProvider } from "@/components/live-status";
 import { NewTaskModal } from "@/components/new-task-modal";
+import type { ActivityView } from "@/lib/board";
+import type { LiveAgentView } from "@/lib/live";
 
 export type ShellAgent = { id: string; name: string; slug: string };
 
@@ -32,10 +35,14 @@ export function Split({ main, side }: { main: React.ReactNode; side: React.React
 export function Shell({
   active,
   agents,
+  live,
+  activity,
   children,
 }: {
   active: "board" | "reports" | "documents" | "outreach";
   agents: ShellAgent[];
+  live: LiveAgentView[];
+  activity: ActivityView[];
   children: React.ReactNode;
 }) {
   const [feed, setFeed] = useState(true);
@@ -66,50 +73,52 @@ export function Shell({
   };
 
   return (
-    <FeedContext.Provider value={feedValue}>
-      <div className="app">
-        <header className="header">
-          <div className="header-inner">
-            <Link href="/" className="brand">
-              <LogoMark />
-              <span className="brand-name">Agent HQ</span>
-            </Link>
-            <nav className="nav" aria-label="Main">
-              <Link href="/" className={active === "board" ? "nav-link active" : "nav-link"} aria-current={active === "board" ? "page" : undefined}>
-                Board
+    <LiveStatusProvider initial={live} initialActivity={activity}>
+      <FeedContext.Provider value={feedValue}>
+        <div className="app">
+          <header className="header">
+            <div className="header-inner">
+              <Link href="/" className="brand">
+                <LogoMark />
+                <span className="brand-name">Agent HQ</span>
               </Link>
-              <Link href="/reports" className={active === "reports" ? "nav-link active" : "nav-link"} aria-current={active === "reports" ? "page" : undefined}>
-                Reports
-              </Link>
-              <Link href="/documents" className={active === "documents" ? "nav-link active" : "nav-link"} aria-current={active === "documents" ? "page" : undefined}>
-                Documents
-              </Link>
-              <Link href="/outreach" className={active === "outreach" ? "nav-link active" : "nav-link"} aria-current={active === "outreach" ? "page" : undefined}>
-                Outreach
-              </Link>
-            </nav>
-            <div className="header-actions">
-              <button type="button" className={feed ? "btn is-on" : "btn"} aria-pressed={feed} onClick={feedValue.toggle}>
-                <ActivityIcon />
-                Activity
-              </button>
-              <ThemeToggle />
-              <button type="button" className="btn btn-primary" onClick={() => setModal(true)}>
-                <PlusIcon />
-                New task
-                <kbd className="kbd">N</kbd>
-              </button>
-              <form action="/api/logout" method="post">
-                <button type="submit" className="text-btn">
-                  Log out
+              <nav className="nav" aria-label="Main">
+                <Link href="/" className={active === "board" ? "nav-link active" : "nav-link"} aria-current={active === "board" ? "page" : undefined}>
+                  Board
+                </Link>
+                <Link href="/reports" className={active === "reports" ? "nav-link active" : "nav-link"} aria-current={active === "reports" ? "page" : undefined}>
+                  Reports
+                </Link>
+                <Link href="/documents" className={active === "documents" ? "nav-link active" : "nav-link"} aria-current={active === "documents" ? "page" : undefined}>
+                  Documents
+                </Link>
+                <Link href="/outreach" className={active === "outreach" ? "nav-link active" : "nav-link"} aria-current={active === "outreach" ? "page" : undefined}>
+                  Outreach
+                </Link>
+              </nav>
+              <div className="header-actions">
+                <button type="button" className={feed ? "btn is-on" : "btn"} aria-pressed={feed} onClick={feedValue.toggle}>
+                  <ActivityIcon />
+                  Activity
                 </button>
-              </form>
+                <ThemeToggle />
+                <button type="button" className="btn btn-primary" onClick={() => setModal(true)}>
+                  <PlusIcon />
+                  New task
+                  <kbd className="kbd">N</kbd>
+                </button>
+                <form action="/api/logout" method="post">
+                  <button type="submit" className="text-btn">
+                    Log out
+                  </button>
+                </form>
+              </div>
             </div>
-          </div>
-        </header>
-        <main className="main">{children}</main>
-        {modal ? <NewTaskModal agents={agents} onClose={() => setModal(false)} /> : null}
-      </div>
-    </FeedContext.Provider>
+          </header>
+          <main className="main">{children}</main>
+          {modal ? <NewTaskModal agents={agents} onClose={() => setModal(false)} /> : null}
+        </div>
+      </FeedContext.Provider>
+    </LiveStatusProvider>
   );
 }

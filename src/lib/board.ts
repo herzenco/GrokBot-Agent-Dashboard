@@ -1,5 +1,6 @@
-import type { ActivityRow, Agent, Mood, Report, Task } from "@/lib/types";
+import { livePillMood, type LiveAgentView } from "@/lib/live";
 import { formatEtTime } from "@/lib/time";
+import type { ActivityRow, Agent, Mood, Report, Task } from "@/lib/types";
 
 export type Bubble = {
   kind: "work" | "stuck" | "nap";
@@ -7,42 +8,32 @@ export type Bubble = {
   lines: string[];
 };
 
-export function moodOf(tasks: Task[]): Mood {
-  const open = tasks.filter((task) => task.status !== "done");
-  if (open.some((task) => task.blocked)) return "blocked";
-  if (open.some((task) => task.status === "doing")) return "active";
-  return "idle";
-}
-
 export function isDoneOnDay(task: Task, startMs: number, endMs: number): boolean {
   if (task.status !== "done" || !task.done_at) return false;
   const stamp = new Date(task.done_at).getTime();
   return stamp >= startMs && stamp < endMs;
 }
 
-export function bubblesFor(tasks: Task[], todoCount: number): Bubble[] {
-  const doing = tasks.filter((task) => task.status === "doing" && !task.blocked);
-  const stuck = tasks.filter((task) => task.blocked && task.status !== "done");
-  const bubbles: Bubble[] = [];
-  if (doing.length) {
-    bubbles.push({ kind: "work", label: "Working on", lines: doing.map((task) => task.title) });
+/** Speech bubble for the effective live state. The task queue does not choose working, stuck, or napping. */
+export function bubblesForLive(
+  view: Pick<LiveAgentView, "state" | "focus_label" | "time_label"> | undefined,
+  todoCount: number,
+): Bubble[] {
+  if (view?.state === "working") {
+    return [{ kind: "work", label: "Working on", lines: [view.focus_label || "Active"] }];
   }
-  for (const task of stuck) {
-    bubbles.push({
-      kind: "stuck",
-      label: `Stuck on ${task.title}`,
-      lines: [task.blocked_note?.trim() || "Blocked"],
-    });
+  if (view?.state === "blocked") {
+    const label = view.focus_label ? `Stuck on ${view.focus_label}` : "Stuck";
+    return [{ kind: "stuck", label, lines: [view.time_label] }];
   }
-  if (!bubbles.length) {
-    const waiting = todoCount === 1 ? "1 waiting" : `${todoCount} waiting`;
-    bubbles.push({
+  const waiting = todoCount === 1 ? "1 waiting" : `${todoCount} waiting`;
+  return [
+    {
       kind: "nap",
       label: "Napping",
       lines: [`Nothing in progress. ${waiting} in To do.`],
-    });
-  }
-  return bubbles;
+    },
+  ];
 }
 
 export type AgentCard = {
@@ -75,8 +66,10 @@ export function buildBoard(
   reports: Report[],
   startMs: number,
   endMs: number,
+  live: LiveAgentView[],
 ): { cards: AgentCard[]; stats: BoardStats } {
   const reportsByAgent = new Map(reports.map((report) => [report.agent_id, report]));
+  const liveByAgent = new Map(live.map((view) => [view.agent_id, view]));
   const cards = agents.map((agent) => {
     const mine = tasks.filter((task) => task.agent_id === agent.id);
     const todo = mine.filter((task) => task.status === "todo").length;
@@ -86,14 +79,15 @@ export function buildBoard(
       .sort((a, b) => (a.done_at ?? "").localeCompare(b.done_at ?? ""))
       .map((task) => task.title);
     const report = reportsByAgent.get(agent.id);
+    const view = liveByAgent.get(agent.id);
     return {
       agent,
-      mood: moodOf(mine),
+      mood: view ? livePillMood(view.state) : "idle",
       todo,
       doing,
       doneToday,
       doneCount: doneToday.length,
-      bubbles: bubblesFor(mine, todo),
+      bubbles: bubblesForLive(view, todo),
       reportPosted: Boolean(report),
       reportLabel: report ? `Report posted ${formatEtTime(new Date(report.posted_at))}` : "Report missing",
     };

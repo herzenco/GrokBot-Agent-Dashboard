@@ -15,6 +15,12 @@ export async function middleware(req: NextRequest) {
   }
 
   if (!ok) {
+    if (pathname.startsWith("/api/live/")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const url = new URL("/login", req.url);
     if (pathname !== "/") url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);

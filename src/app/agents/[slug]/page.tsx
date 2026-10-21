@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActivityPanel } from "@/components/activity-panel";
-import { Avatar } from "@/components/avatar";
+import { LiveAvatar, LiveMoodPill } from "@/components/live-status";
 import { QueueBoard } from "@/components/queue-board";
 import { Shell, Split } from "@/components/shell";
 import { tileVar } from "@/lib/avatar-model";
-import { statusLabel } from "@/lib/board";
 import { loadChrome } from "@/lib/chrome";
 import type { Priority, Task, TaskStatus } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
 
 function sortQueue(tasks: Task[]): Task[] {
   const rank: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
@@ -33,7 +34,7 @@ export default async function AgentQueuePage({ params }: { params: Promise<{ slu
   const counts = (status: TaskStatus) => tasks.filter((task) => task.status === status).length;
 
   return (
-    <Shell active="board" agents={chrome.agents}>
+    <Shell active="board" agents={chrome.agents} live={chrome.live} activity={chrome.activity}>
       <p className="dateline">
         <Link href="/">Board</Link>
         <span aria-hidden="true"> / </span>
@@ -41,16 +42,13 @@ export default async function AgentQueuePage({ params }: { params: Promise<{ slu
       </p>
       <div className="queue-intro">
         <div className="queue-person" style={{ background: tileVar(agent.name) }}>
-          <Avatar name={agent.name} mood={mood} size={64} />
+          <LiveAvatar name={agent.name} agentId={agent.id} fallback={mood} size={64} />
         </div>
         <div>
           <h1 className="greeting queue-title">{agent.name}</h1>
           <p className="subhead">
             {agent.role}
-            <span className={`pill pill-${mood}`}>
-              <span className="pill-dot" aria-hidden="true" />
-              {statusLabel(mood)}
-            </span>
+            <LiveMoodPill agentId={agent.id} fallback={mood} />
           </p>
           <p className="quiet-line">
             {counts("todo")} to do, {counts("doing")} doing, {counts("done")} done. Drag a title into a column, or use the buttons.

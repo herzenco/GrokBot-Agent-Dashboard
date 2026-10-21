@@ -1,10 +1,12 @@
 import { ActivityPanel } from "@/components/activity-panel";
-import { Avatar } from "@/components/avatar";
 import { DatePicker } from "@/components/date-picker";
+import { LiveAvatar } from "@/components/live-status";
 import { Shell, Split } from "@/components/shell";
 import { loadChrome } from "@/lib/chrome";
 import { listReports } from "@/lib/data";
 import { etTodayISO, formatEtTime, isIsoDate } from "@/lib/time";
+
+export const dynamic = "force-dynamic";
 
 function lines(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -24,7 +26,7 @@ export default async function ReportsPage({
   const posted = chrome.agents.filter((agent) => byAgent.has(agent.id)).length;
 
   return (
-    <Shell active="reports" agents={chrome.agents}>
+    <Shell active="reports" agents={chrome.agents} live={chrome.live} activity={chrome.activity}>
       <div className="page-head">
         <div>
           <p className="dateline">America/New_York</p>
@@ -48,7 +50,7 @@ export default async function ReportsPage({
               return (
                 <article key={agent.id} className={report ? "report-card" : "report-card is-missing"}>
                   <header className="report-head">
-                    <Avatar name={agent.name} mood={mood} size={44} />
+                    <LiveAvatar name={agent.name} agentId={agent.id} fallback={mood} size={44} />
                     <div>
                       <h2>{agent.name}</h2>
                       <p>{agent.role}</p>

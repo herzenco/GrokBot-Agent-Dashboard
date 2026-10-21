@@ -240,6 +240,25 @@ export function livePillMood(state: LiveState): Mood {
   return "idle";
 }
 
+/** Avatar, pill, and activity mood for each agent. Keyed by agent id. */
+export function moodMap(views: { agent_id: string; state: LiveState }[]): Map<string, Mood> {
+  return new Map(views.map((view) => [view.agent_id, livePillMood(view.state)]));
+}
+
+/**
+ * Mood for an activity row. The live view wins over a mood baked in when the row was loaded.
+ * Tito and unknown actors keep the fallback.
+ */
+export function moodForActor(
+  actor: string,
+  actorName: string,
+  views: { slug: string; name: string; state: LiveState }[],
+  fallback: Mood,
+): Mood {
+  const row = views.find((view) => view.slug === actor || view.name === actorName);
+  return row ? livePillMood(row.state) : fallback;
+}
+
 export function statusActivitySummary(state: LiveState, workingOn: string): string {
   if (state === "working") return `is working on “${workingOn}”`;
   if (state === "blocked") return `is blocked on “${workingOn}”`;

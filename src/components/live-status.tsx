@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
-import { statusLabel, type ActivityView } from "@/lib/board";
+import { bubblesForLive, statusLabel, type ActivityView, type Bubble } from "@/lib/board";
 import {
   LIVE_POLL_MS,
   effectiveCounts,
@@ -33,7 +33,7 @@ export function useLiveBoard(): LiveBoard | null {
 }
 
 async function readJson(url: string): Promise<unknown | null> {
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
   if (!response.ok) return null;
   const type = response.headers.get("content-type") ?? "";
   if (!type.includes("application/json")) return null;
@@ -180,6 +180,33 @@ export function LiveIndicator() {
       <span>{updatedAgoLabel(board?.polledAt ?? null, board?.now ?? 0)}</span>
       <span className="live-latest">Latest activity {latestLabel}</span>
     </p>
+  );
+}
+
+export function LiveBubbles({
+  agentId,
+  todo,
+  fallback,
+}: {
+  agentId: string;
+  todo: number;
+  fallback: Bubble[];
+}) {
+  const row = useLiveAgent(agentId);
+  const bubbles = row ? bubblesForLive(row, todo) : fallback;
+  return (
+    <div className="bubbles">
+      {bubbles.map((bubble, index) => (
+        <div key={`${bubble.kind}-${bubble.label}`} className={`bubble bubble-${bubble.kind}`} data-tail={index === 0 ? "yes" : "no"}>
+          <div className="bubble-label">{bubble.label}</div>
+          {bubble.lines.map((line) => (
+            <div key={line} className="bubble-line">
+              {line}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
