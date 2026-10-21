@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { AgentIdentity } from "@/lib/api-key";
 import { db } from "@/lib/db";
+import type { OutreachRow, OutreachStatus } from "@/lib/outreach";
 import type { ActivityRow, Agent, AgentStatusRow, DocumentEvent, DocumentRow, Report, Task } from "@/lib/types";
 
 const TASK_COLUMNS =
@@ -97,6 +98,23 @@ export async function listDocumentEvents(documentId?: string): Promise<DocumentE
   if (documentId) query = query.eq("document_id", documentId);
   const { data, error } = await query;
   return unwrap(data, error) as DocumentEvent[];
+}
+
+const OUTREACH_COLUMNS =
+  "id,agent_id,person_name,company,title,email,linkedin_url,channel,contacted_at,message,status,source_url,created_at,updated_at";
+
+export async function listOutreach(filter?: { agentId?: string; status?: OutreachStatus }): Promise<OutreachRow[]> {
+  let query = db().from("outreach").select(OUTREACH_COLUMNS).order("contacted_at", { ascending: false });
+  if (filter?.agentId) query = query.eq("agent_id", filter.agentId);
+  if (filter?.status) query = query.eq("status", filter.status);
+  const { data, error } = await query;
+  return unwrap(data, error) as OutreachRow[];
+}
+
+export async function getOutreach(id: string): Promise<OutreachRow | null> {
+  const { data, error } = await db().from("outreach").select(OUTREACH_COLUMNS).eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as OutreachRow | null) ?? null;
 }
 
 export async function getDocument(id: string): Promise<DocumentRow | null> {
