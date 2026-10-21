@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { ActivityPanel } from "@/components/activity-panel";
-import { Avatar } from "@/components/avatar";
+import { LiveAvatar } from "@/components/live-status";
 import { Shell, Split } from "@/components/shell";
 import { loadChrome } from "@/lib/chrome";
 import { listDocumentEvents, listDocuments } from "@/lib/data";
 import { documentAgentName } from "@/lib/documents";
 import { formatEtDateTime } from "@/lib/time";
 import { safeHref } from "@/lib/url";
+
+export const dynamic = "force-dynamic";
 
 export default async function DocumentsPage() {
   const [chrome, documents, events] = await Promise.all([loadChrome(), listDocuments(), listDocumentEvents()]);
@@ -15,7 +17,7 @@ export default async function DocumentsPage() {
   for (const event of events) latest.set(event.document_id, event);
 
   return (
-    <Shell active="documents" agents={chrome.agents}>
+    <Shell active="documents" agents={chrome.agents} live={chrome.live} activity={chrome.activity}>
       <p className="dateline">Audit trail</p>
       <h1 className="greeting page-title">Documents</h1>
       <p className="subhead">Vault paths and who changed them. Agent HQ never reads the files.</p>
@@ -36,7 +38,7 @@ export default async function DocumentsPage() {
                       <span className="doc-title">{document.title}</span>
                       <code className="doc-path">{document.vault_path}</code>
                       <span className="doc-meta">
-                        {agent ? <Avatar name={agent.name} mood={chrome.moods.get(agent.id) ?? "active"} size={22} /> : null}
+                        {agent ? <LiveAvatar name={agent.name} agentId={agent.id} fallback={chrome.moods.get(agent.id) ?? "idle"} size={22} /> : null}
                         <span>{agentName}</span>
                         <span>{formatEtDateTime(new Date(document.last_changed_at))}</span>
                       </span>

@@ -6,7 +6,7 @@ import { CloseIcon } from "@/components/icons";
 import { useLiveBoard } from "@/components/live-status";
 import { useFeed } from "@/components/shell";
 import type { ActivityView } from "@/lib/board";
-import { LIVE_POLL_MS, shouldPollNow } from "@/lib/live";
+import { LIVE_POLL_MS, moodForActor, shouldPollNow } from "@/lib/live";
 
 export function ActivityPanel({ items }: { items: ActivityView[] }) {
   const live = useLiveBoard();
@@ -48,6 +48,7 @@ export function ActivityPanel({ items }: { items: ActivityView[] }) {
   }, [onBoard]);
 
   const shown = live?.polling ? live.activity : rows;
+  const liveRows = live?.rows ?? [];
 
   return (
     <aside className="activity" aria-label="Activity">
@@ -74,7 +75,7 @@ export function ActivityPanel({ items }: { items: ActivityView[] }) {
                     T
                   </span>
                 ) : (
-                  <Avatar name={item.actorName} mood={item.mood} size={28} />
+                  <Avatar name={item.actorName} mood={moodForActor(item.actor, item.actorName, liveRows, item.mood)} size={28} />
                 )}
                 <span className="rail-line" />
               </span>

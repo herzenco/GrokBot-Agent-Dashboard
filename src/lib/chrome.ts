@@ -1,12 +1,15 @@
 import "server-only";
-import { buildBoard, moodOf, presentActivity, type ActivityView } from "@/lib/board";
-import { listActivity, listAgents, listReports, listTasks } from "@/lib/data";
+import { connection } from "next/server";
+import { buildBoard, presentActivity, type ActivityView } from "@/lib/board";
+import { listActivity, listAgentStatus, listAgents, listReports, listTasks } from "@/lib/data";
+import { moodMap, presentLiveStatus, type LiveAgentView } from "@/lib/live";
 import { etDayRange, etTodayISO } from "@/lib/time";
 import type { Agent, Mood, Task } from "@/lib/types";
 
 export async function loadChrome(now = new Date()): Promise<{
   agents: Agent[];
   tasks: Task[];
+  live: LiveAgentView[];
   activity: ActivityView[];
   now: Date;
   date: string;
@@ -14,24 +17,25 @@ export async function loadChrome(now = new Date()): Promise<{
   endMs: number;
   moods: Map<string, Mood>;
 }> {
+  await connection();
   const date = etTodayISO(now);
   const range = etDayRange(date);
-  const [agents, tasks, rows] = await Promise.all([
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const until = new Date(now.getTime() + 60_000).toISOString();
+  const [agents, tasks, feedRows, recentRows, statuses] = await Promise.all([
     listAgents(),
     listTasks(),
     listActivity(range.start.toISOString(), range.end.toISOString()),
+    listActivity(since, until),
+    listAgentStatus(),
   ]);
-  const moods = new Map<string, Mood>();
-  for (const agent of agents) {
-    moods.set(
-      agent.id,
-      moodOf(tasks.filter((task) => task.agent_id === agent.id)),
-    );
-  }
+  const live = presentLiveStatus(agents, statuses, now, recentRows);
+  const moods = moodMap(live);
   return {
     agents,
     tasks,
-    activity: presentActivity(rows, agents, moods),
+    live,
+    activity: presentActivity(feedRows, agents, moods),
     now,
     date,
     startMs: range.start.getTime(),
@@ -43,6 +47,6 @@ export async function loadChrome(now = new Date()): Promise<{
 export async function loadBoard(now = new Date()) {
   const chrome = await loadChrome(now);
   const reports = await listReports(chrome.date);
-  const board = buildBoard(chrome.agents, chrome.tasks, reports, chrome.startMs, chrome.endMs);
+  const board = buildBoard(chrome.agents, chrome.tasks, reports, chrome.startMs, chrome.endMs, chrome.live);
   return { ...chrome, ...board };
 }

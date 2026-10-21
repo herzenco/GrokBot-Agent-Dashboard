@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActivityPanel } from "@/components/activity-panel";
-import { Avatar } from "@/components/avatar";
+import { LiveAvatar } from "@/components/live-status";
 import { Shell, Split } from "@/components/shell";
 import { loadChrome } from "@/lib/chrome";
 import { getDocument, listDocumentEvents } from "@/lib/data";
 import { documentAgentName } from "@/lib/documents";
 import { formatEtDateTime } from "@/lib/time";
 import { isUuid, safeHref } from "@/lib/url";
+
+export const dynamic = "force-dynamic";
 
 export default async function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -18,7 +20,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   const href = safeHref(document.url);
 
   return (
-    <Shell active="documents" agents={chrome.agents}>
+    <Shell active="documents" agents={chrome.agents} live={chrome.live} activity={chrome.activity}>
       <p className="dateline">
         <Link href="/documents">Documents</Link>
         <span aria-hidden="true"> / </span>
@@ -45,7 +47,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
               const agentName = documentAgentName(chrome.agents, event.agent_id);
               return (
                 <li key={event.id} className="event">
-                  {agent ? <Avatar name={agent.name} mood={chrome.moods.get(agent.id) ?? "active"} size={36} /> : <span className="tito-mark">?</span>}
+                  {agent ? <LiveAvatar name={agent.name} agentId={agent.id} fallback={chrome.moods.get(agent.id) ?? "idle"} size={36} /> : <span className="tito-mark">?</span>}
                   <div>
                     <div className="event-line">
                       <strong>{agentName}</strong>
