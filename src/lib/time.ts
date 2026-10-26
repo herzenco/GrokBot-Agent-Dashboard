@@ -132,3 +132,17 @@ export function ageLabel(iso: string, now = Date.now()): string {
 export function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(etLocalToUtc(value).getTime());
 }
+
+/** Oct 23, from a YYYY-MM-DD calendar date in America/New_York. */
+export function formatIsoMonthDay(dateISO: string): string {
+  if (!isIsoDate(dateISO)) return dateISO;
+  const parts = readParts(etLocalToUtc(dateISO, "12:00:00"));
+  return `${parts.monthShort} ${parts.dayPart}`;
+}
+
+/** Fri, Oct 23 */
+export function formatIsoWeekday(dateISO: string): string {
+  if (!isIsoDate(dateISO)) return dateISO;
+  const parts = readParts(etLocalToUtc(dateISO, "12:00:00"));
+  return `${parts.weekday.slice(0, 3)}, ${parts.monthShort} ${parts.dayPart}`;
+}

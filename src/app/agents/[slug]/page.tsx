@@ -56,7 +56,7 @@ export default async function AgentQueuePage({ params }: { params: Promise<{ slu
         </div>
       </div>
       <Split
-        main={<QueueBoard tasks={tasks} agents={chrome.agents} />}
+        main={<QueueBoard tasks={tasks} agents={chrome.agents} owner={agent} mood={mood} />}
         side={<ActivityPanel items={chrome.activity} />}
       />
     </Shell>

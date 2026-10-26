@@ -37,13 +37,66 @@ describe("status body validation", () => {
       ok: true,
       state: "working",
       workingOn: "Weekly priorities memo",
+      blockedReason: null,
+      unblockNeeded: null,
     });
   });
 
   it("lets idle omit the working text", () => {
-    expect(parseStatusBody({ state: "idle" })).toEqual({ ok: true, state: "idle", workingOn: "" });
-    expect(parseStatusBody({ state: "idle", working_on: "   " })).toEqual({ ok: true, state: "idle", workingOn: "" });
-    expect(parseStatusBody({ state: "idle", working_on: null })).toEqual({ ok: true, state: "idle", workingOn: "" });
+    expect(parseStatusBody({ state: "idle" })).toEqual({
+      ok: true,
+      state: "idle",
+      workingOn: "",
+      blockedReason: null,
+      unblockNeeded: null,
+    });
+    expect(parseStatusBody({ state: "idle", working_on: "   " })).toEqual({
+      ok: true,
+      state: "idle",
+      workingOn: "",
+      blockedReason: null,
+      unblockNeeded: null,
+    });
+    expect(parseStatusBody({ state: "idle", working_on: null })).toEqual({
+      ok: true,
+      state: "idle",
+      workingOn: "",
+      blockedReason: null,
+      unblockNeeded: null,
+    });
+  });
+
+  it("keeps block details only while the state is blocked", () => {
+    expect(
+      parseStatusBody({
+        state: "blocked",
+        working_on: "Waiting on Herzen",
+        blocked_reason: "  Review pending  ",
+        unblock_needed: "Merge approval",
+      }),
+    ).toEqual({
+      ok: true,
+      state: "blocked",
+      workingOn: "Waiting on Herzen",
+      blockedReason: "Review pending",
+      unblockNeeded: "Merge approval",
+    });
+    expect(
+      parseStatusBody({
+        state: "working",
+        working_on: "Writing",
+        blocked_reason: "old reason",
+        unblock_needed: "old need",
+      }),
+    ).toMatchObject({ blockedReason: null, unblockNeeded: null });
+    expect(parseStatusBody({ state: "blocked", working_on: "Stuck", blocked_reason: "x".repeat(1001) })).toEqual({
+      ok: false,
+      error: "blocked_reason must be 1000 characters or fewer",
+    });
+    expect(parseStatusBody({ state: "blocked", working_on: "Stuck", unblock_needed: 4 })).toEqual({
+      ok: false,
+      error: "unblock_needed must be a string",
+    });
   });
 
   it("rejects missing, mistyped, and oversized fields", () => {

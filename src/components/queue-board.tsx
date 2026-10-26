@@ -3,9 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { reassignTaskAction, setTaskBlockedAction, setTaskPriorityAction, setTaskStatusAction } from "@/app/actions";
+import { BlockedDetailModal } from "@/components/blocked-detail-modal";
 import type { ShellAgent } from "@/components/shell";
+import { taskBlockedEntry, type BlockedAgentRef } from "@/lib/blocked";
 import { ageLabel } from "@/lib/time";
-import type { Priority, Task, TaskStatus } from "@/lib/types";
+import type { Mood, Priority, Task, TaskStatus } from "@/lib/types";
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: "todo", label: "To do" },
@@ -13,7 +15,17 @@ const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: "done", label: "Done" },
 ];
 
-export function QueueBoard({ tasks, agents }: { tasks: Task[]; agents: ShellAgent[] }) {
+export function QueueBoard({
+  tasks,
+  agents,
+  owner,
+  mood = "blocked",
+}: {
+  tasks: Task[];
+  agents: ShellAgent[];
+  owner: BlockedAgentRef;
+  mood?: Mood;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +82,11 @@ export function QueueBoard({ tasks, agents }: { tasks: Task[]; agents: ShellAgen
                     onStatus={(status) => run(() => setTaskStatusAction(task.id, status))}
                     onPriority={(priority) => run(() => setTaskPriorityAction(task.id, priority))}
                     onReassign={(agentId) => run(() => reassignTaskAction(task.id, agentId))}
-                    onBlock={(blocked, note) => run(() => setTaskBlockedAction(task.id, blocked, note))}
+                    onBlock={(blocked, note, blockedReason, unblockNeeded) =>
+                      run(() => setTaskBlockedAction(task.id, blocked, note, blockedReason, unblockNeeded))
+                    }
+                    owner={owner}
+                    mood={mood}
                   />
                 ))}
               </div>
@@ -90,6 +106,8 @@ function TaskCard({
   onPriority,
   onReassign,
   onBlock,
+  owner,
+  mood,
 }: {
   task: Task;
   agents: ShellAgent[];
@@ -97,10 +115,15 @@ function TaskCard({
   onStatus: (status: TaskStatus) => void;
   onPriority: (priority: Priority) => void;
   onReassign: (agentId: string) => void;
-  onBlock: (blocked: boolean, note: string) => void;
+  onBlock: (blocked: boolean, note: string, blockedReason?: string, unblockNeeded?: string) => void;
+  owner: BlockedAgentRef;
+  mood: Mood;
 }) {
-  const [note, setNote] = useState(task.blocked_note ?? "");
+  const [reason, setReason] = useState(task.blocked_reason ?? task.blocked_note ?? "");
+  const [needed, setNeeded] = useState(task.unblock_needed ?? "");
   const [blocking, setBlocking] = useState(false);
+  const [detail, setDetail] = useState(false);
+  const blockEntry = task.blocked ? taskBlockedEntry(owner, task, mood) : null;
 
   return (
     <article
@@ -122,9 +145,18 @@ function TaskCard({
       <div className="task-meta">
         <span className={`pri pri-${task.priority}`}>{task.priority}</span>
         <span className="age">{ageLabel(task.created_at)}</span>
-        {task.blocked ? <span className="blocked-badge">Blocked</span> : null}
+        {task.blocked ? (
+          <button type="button" className="blocked-badge blocked-badge-btn" onClick={() => setDetail(true)}>
+            Blocked
+          </button>
+        ) : null}
       </div>
-      {task.blocked && task.blocked_note ? <p className="blocked-note">{task.blocked_note}</p> : null}
+      {task.blocked ? (
+        <button type="button" className="blocked-note blocked-note-btn" onClick={() => setDetail(true)}>
+          <span>{task.blocked_note || task.blocked_reason || "This task is blocked."}</span>
+          <span className="view-block">View block details</span>
+        </button>
+      ) : null}
       <div className="seg" role="group" aria-label="Status">
         {COLUMNS.map((column) => (
           <button
@@ -171,13 +203,29 @@ function TaskCard({
           className="block-form"
           onSubmit={(event) => {
             event.preventDefault();
-            onBlock(true, note);
+            onBlock(true, reason, reason, needed);
             setBlocking(false);
           }}
         >
           <label>
-            What is stuck?
-            <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} required maxLength={1000} />
+            Why is it blocked?
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              rows={2}
+              required
+              maxLength={1000}
+            />
+          </label>
+          <label>
+            What is needed to unblock it?
+            <textarea
+              value={needed}
+              onChange={(event) => setNeeded(event.target.value)}
+              rows={2}
+              required
+              maxLength={1000}
+            />
           </label>
           <div className="modal-actions">
             <button type="button" className="btn" onClick={() => setBlocking(false)}>
@@ -193,6 +241,13 @@ function TaskCard({
           Mark blocked
         </button>
       )}
+      {detail && blockEntry ? (
+        <BlockedDetailModal
+          entries={[blockEntry]}
+          heading={`${owner.name} is blocked`}
+          onClose={() => setDetail(false)}
+        />
+      ) : null}
     </article>
   );
 }
