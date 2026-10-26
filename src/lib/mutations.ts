@@ -7,7 +7,7 @@ import { outreachActivitySummary, type OutreachPatch, type OutreachRow, type Out
 import type { Agent, DocAction, LiveState, Priority, Task, TaskStatus } from "@/lib/types";
 
 const TASK_COLUMNS =
-  "id,title,details,agent_id,priority,status,blocked,blocked_note,created_at,updated_at,done_at";
+  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,created_at,updated_at,done_at";
 
 export type TaskPatch = {
   title?: string;
@@ -16,6 +16,8 @@ export type TaskPatch = {
   status?: TaskStatus;
   blocked?: boolean;
   blocked_note?: string | null;
+  blocked_reason?: string | null;
+  unblock_needed?: string | null;
   agent_id?: string;
 };
 
@@ -56,13 +58,27 @@ export async function recordHeartbeat(input: {
   agent: Agent;
   state: LiveState;
   workingOn: string;
-}): Promise<{ agent: string; state: LiveState; working_on: string; updated_at: string }> {
+  blockedReason?: string | null;
+  unblockNeeded?: string | null;
+}): Promise<{
+  agent: string;
+  state: LiveState;
+  working_on: string;
+  updated_at: string;
+  blocked_reason: string | null;
+  unblock_needed: string | null;
+}> {
+  const blocked = input.state === "blocked";
+  const blockedReason = blocked ? input.blockedReason?.trim() || null : null;
+  const unblockNeeded = blocked ? input.unblockNeeded?.trim() || null : null;
   const { data, error } = await db()
     .from("agent_heartbeats")
     .insert({
       agent_id: input.agent.id,
       state: input.state,
       working_on: input.workingOn,
+      blocked_reason: blockedReason,
+      unblock_needed: unblockNeeded,
     })
     .select("created_at")
     .single();
@@ -83,6 +99,8 @@ export async function recordHeartbeat(input: {
         state: input.state,
         working_on: input.workingOn,
         updated_at: updatedAt,
+        blocked_reason: blockedReason,
+        unblock_needed: unblockNeeded,
       },
       { onConflict: "agent_id" },
     );
@@ -93,6 +111,8 @@ export async function recordHeartbeat(input: {
     state: input.state,
     working_on: input.workingOn,
     updated_at: updatedAt,
+    blocked_reason: blockedReason,
+    unblock_needed: unblockNeeded,
   };
 }
 
@@ -102,7 +122,15 @@ export async function createTaskForAgent(input: {
   details: string | null;
   priority: Priority;
   actor: string;
+  blocked?: boolean;
+  blockedNote?: string | null;
+  blockedReason?: string | null;
+  unblockNeeded?: string | null;
 }): Promise<Task> {
+  const blocked = Boolean(input.blocked);
+  const blockedReason = blocked ? input.blockedReason?.trim() || null : null;
+  const unblockNeeded = blocked ? input.unblockNeeded?.trim() || null : null;
+  const blockedNote = blocked ? input.blockedNote?.trim() || blockedReason : null;
   const { data, error } = await db()
     .from("tasks")
     .insert({
@@ -111,8 +139,10 @@ export async function createTaskForAgent(input: {
       agent_id: input.agent.id,
       priority: input.priority,
       status: "todo",
-      blocked: false,
-      blocked_note: null,
+      blocked,
+      blocked_note: blockedNote,
+      blocked_reason: blockedReason,
+      unblock_needed: unblockNeeded,
     })
     .select(TASK_COLUMNS)
     .single();
@@ -145,25 +175,41 @@ export async function applyTaskPatch(
   const status = patch.status ?? current.status;
   let blocked = patch.blocked ?? current.blocked;
   let blockedNote = patch.blocked_note !== undefined ? patch.blocked_note : current.blocked_note;
+  let blockedReason = patch.blocked_reason !== undefined ? patch.blocked_reason : (current.blocked_reason ?? null);
+  let unblockNeeded = patch.unblock_needed !== undefined ? patch.unblock_needed : (current.unblock_needed ?? null);
   const agentId = patch.agent_id ?? current.agent_id;
   let doneAt = current.done_at;
 
   if (status === "done") {
     blocked = false;
-    blockedNote = null;
     if (current.status !== "done" || !doneAt) doneAt = new Date().toISOString();
   } else if (current.status === "done") {
     doneAt = null;
   }
 
-  if (!blocked) blockedNote = null;
-  if (blocked && !blockedNote?.trim()) return { error: "A blocked task needs a note" };
+  blockedNote = blockedNote?.trim() || null;
+  blockedReason = blockedReason?.trim() || null;
+  unblockNeeded = unblockNeeded?.trim() || null;
+
+  if (!blocked) {
+    blockedNote = null;
+    blockedReason = null;
+    unblockNeeded = null;
+  } else if (patch.blocked_reason !== undefined && patch.blocked_note === undefined && blockedReason) {
+    blockedNote = blockedReason;
+  } else if (!blockedNote && blockedReason) {
+    blockedNote = blockedReason;
+  }
+
+  if (blocked && !blockedNote) return { error: "A blocked task needs a note" };
 
   title = title.trim();
   if (!title) return { error: "Title is required" };
   if (title.length > 200) return { error: "Title must be 200 characters or fewer" };
   if (details && details.length > 5000) return { error: "Details must be 5000 characters or fewer" };
   if (blockedNote && blockedNote.length > 1000) return { error: "Block note must be 1000 characters or fewer" };
+  if (blockedReason && blockedReason.length > 1000) return { error: "Block reason must be 1000 characters or fewer" };
+  if (unblockNeeded && unblockNeeded.length > 1000) return { error: "Unblock note must be 1000 characters or fewer" };
 
   const agents = await listAgents();
   const nextAgent = agents.find((agent) => agent.id === agentId);
@@ -176,6 +222,8 @@ export async function applyTaskPatch(
     status === current.status &&
     blocked === current.blocked &&
     (blockedNote ?? null) === (current.blocked_note ?? null) &&
+    (blockedReason ?? null) === (current.blocked_reason ?? null) &&
+    (unblockNeeded ?? null) === (current.unblock_needed ?? null) &&
     agentId === current.agent_id &&
     (doneAt ?? null) === (current.done_at ?? null);
 
@@ -190,6 +238,8 @@ export async function applyTaskPatch(
       status,
       blocked,
       blocked_note: blockedNote,
+      blocked_reason: blockedReason,
+      unblock_needed: unblockNeeded,
       agent_id: agentId,
       done_at: doneAt,
     })
@@ -207,6 +257,17 @@ export async function applyTaskPatch(
     parts.push({ verb: "blocked", text: `marked ${quote(title)} blocked` });
   } else if (!blocked && current.blocked && status !== "done") {
     parts.push({ verb: "unblocked", text: `cleared the block on ${quote(title)}` });
+  }
+  const blockTextChanged =
+    (blockedNote ?? null) !== (current.blocked_note ?? null) ||
+    (blockedReason ?? null) !== (current.blocked_reason ?? null) ||
+    (unblockNeeded ?? null) !== (current.unblock_needed ?? null);
+  if (
+    status !== "done" &&
+    blockTextChanged &&
+    !parts.some((part) => part.verb === "blocked" || part.verb === "unblocked")
+  ) {
+    parts.push({ verb: "updated", text: `updated the block on ${quote(title)}` });
   }
   if (priority !== current.priority) {
     const text =

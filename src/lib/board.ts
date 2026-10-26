@@ -1,5 +1,5 @@
 import { livePillMood, type LiveAgentView } from "@/lib/live";
-import { formatEtTime } from "@/lib/time";
+import { formatEtTime, formatIsoMonthDay } from "@/lib/time";
 import type { ActivityRow, Agent, Mood, Report, Task } from "@/lib/types";
 
 export type Bubble = {
@@ -46,6 +46,7 @@ export type AgentCard = {
   bubbles: Bubble[];
   reportLabel: string;
   reportPosted: boolean;
+  reportTone: "posted" | "latest" | "missing";
 };
 
 export type BoardStats = {
@@ -55,9 +56,18 @@ export type BoardStats = {
   blocked: number;
   reportsPosted: number;
   reportsMissing: number;
+  /** Set when today has no reports and an earlier day does. */
+  latestReportDate: string | null;
+  latestReportsPosted: number;
   working: number;
   stuck: number;
   napping: number;
+};
+
+export type BoardReportFallback = {
+  date: string;
+  posted: number;
+  reports: Report[];
 };
 
 export function buildBoard(
@@ -67,9 +77,12 @@ export function buildBoard(
   startMs: number,
   endMs: number,
   live: LiveAgentView[],
+  latest?: BoardReportFallback | null,
 ): { cards: AgentCard[]; stats: BoardStats } {
   const reportsByAgent = new Map(reports.map((report) => [report.agent_id, report]));
   const liveByAgent = new Map(live.map((view) => [view.agent_id, view]));
+  const useLatest = reports.length === 0 && Boolean(latest?.date);
+  const latestByAgent = new Map((latest?.reports ?? []).map((report) => [report.agent_id, report]));
   const cards = agents.map((agent) => {
     const mine = tasks.filter((task) => task.agent_id === agent.id);
     const todo = mine.filter((task) => task.status === "todo").length;
@@ -79,7 +92,17 @@ export function buildBoard(
       .sort((a, b) => (a.done_at ?? "").localeCompare(b.done_at ?? ""))
       .map((task) => task.title);
     const report = reportsByAgent.get(agent.id);
+    const prior = useLatest ? latestByAgent.get(agent.id) : undefined;
     const view = liveByAgent.get(agent.id);
+    let reportLabel = "Report missing";
+    let reportTone: AgentCard["reportTone"] = "missing";
+    if (report) {
+      reportLabel = `Report posted ${formatEtTime(new Date(report.posted_at))}`;
+      reportTone = "posted";
+    } else if (prior) {
+      reportLabel = `Latest report ${formatIsoMonthDay(prior.report_date)}`;
+      reportTone = "latest";
+    }
     return {
       agent,
       mood: view ? livePillMood(view.state) : "idle",
@@ -89,7 +112,8 @@ export function buildBoard(
       doneCount: doneToday.length,
       bubbles: bubblesForLive(view, todo),
       reportPosted: Boolean(report),
-      reportLabel: report ? `Report posted ${formatEtTime(new Date(report.posted_at))}` : "Report missing",
+      reportLabel,
+      reportTone,
     };
   });
   const stats: BoardStats = {
@@ -99,6 +123,8 @@ export function buildBoard(
     blocked: tasks.filter((task) => task.blocked && task.status !== "done").length,
     reportsPosted: cards.filter((card) => card.reportPosted).length,
     reportsMissing: cards.filter((card) => !card.reportPosted).length,
+    latestReportDate: useLatest && latest ? latest.date : null,
+    latestReportsPosted: useLatest && latest ? latest.posted : 0,
     working: cards.filter((card) => card.mood === "active").length,
     stuck: cards.filter((card) => card.mood === "blocked").length,
     napping: cards.filter((card) => card.mood === "idle").length,

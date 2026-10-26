@@ -79,6 +79,8 @@ describe("effective state on every surface", () => {
     expect(ig?.bubbles[0]?.kind).toBe("stuck");
     expect(ig?.bubbles[0]?.label).toBe("Stuck on Waiting on Matt");
 
+    expect(chopper?.reportLabel).toBe("Report missing");
+    expect(stats.latestReportDate).toBeNull();
     expect(stats).toMatchObject({ working: 1, stuck: 1, napping: 1, blocked: 0 });
     expect(effectiveCounts(live)).toEqual({ working: 1, stuck: 1, napping: 1 });
     expect(moodMap(live).get("chopper")).toBe("active");
@@ -124,5 +126,52 @@ describe("effective state on every surface", () => {
     expect(cards[0]?.mood).toBe("idle");
     expect(cards[0]?.bubbles[0]).toMatchObject({ kind: "nap", label: "Napping" });
     expect(stats).toMatchObject({ working: 0, stuck: 0, napping: 1 });
+  });
+
+  it("points at the latest posted day when today has no reports", () => {
+    const prior = {
+      id: "r1",
+      agent_id: "chopper",
+      report_date: "2026-10-23",
+      done: [],
+      in_progress: [],
+      blocked: [],
+      posted_at: "2026-10-23T22:00:00.000Z",
+    };
+    const { cards, stats } = buildBoard(agents, [], [], 0, 1, [], {
+      date: "2026-10-23",
+      posted: 1,
+      reports: [prior],
+    });
+    expect(cards.find((card) => card.agent.slug === "chopper")).toMatchObject({
+      reportPosted: false,
+      reportLabel: "Latest report Oct 23",
+      reportTone: "latest",
+    });
+    expect(cards.find((card) => card.agent.slug === "roger")?.reportLabel).toBe("Report missing");
+    expect(stats.reportsPosted).toBe(0);
+    expect(stats.reportsMissing).toBe(3);
+    expect(stats.latestReportDate).toBe("2026-10-23");
+    expect(stats.latestReportsPosted).toBe(1);
+  });
+
+  it("keeps today's posted label when a report is already in", () => {
+    const today = {
+      id: "r1",
+      agent_id: "chopper",
+      report_date: "2026-10-26",
+      done: [],
+      in_progress: [],
+      blocked: [],
+      posted_at: "2026-10-26T22:22:00.000Z",
+    };
+    const { cards, stats } = buildBoard(agents, [], [today], 0, 1, [], {
+      date: "2026-10-23",
+      posted: 8,
+      reports: [today],
+    });
+    expect(cards.find((card) => card.agent.id === "chopper")?.reportLabel).toBe("Report posted 6:22 PM");
+    expect(stats.reportsPosted).toBe(1);
+    expect(stats.latestReportDate).toBeNull();
   });
 });

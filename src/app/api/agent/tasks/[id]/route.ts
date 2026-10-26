@@ -51,6 +51,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     if (isResponse(note)) return note;
     patch.blocked_note = note;
   }
+  if ("blocked_reason" in body) {
+    const reason = asText(body.blocked_reason, "blocked_reason", 1000, false);
+    if (isResponse(reason)) return reason;
+    patch.blocked_reason = reason;
+  }
+  if ("unblock_needed" in body) {
+    const needed = asText(body.unblock_needed, "unblock_needed", 1000, false);
+    if (isResponse(needed)) return needed;
+    patch.unblock_needed = needed;
+  }
   const keyAgent = actor.admin ? owner : (agents.find((agent) => agent.id === actor.agent.id) ?? owner);
   let acting = keyAgent;
   if ("agent" in body) {

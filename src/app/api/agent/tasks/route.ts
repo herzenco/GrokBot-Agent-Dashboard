@@ -47,12 +47,43 @@ export async function POST(req: Request) {
   const status = body.status;
   if (status !== undefined && status !== "todo") return jsonError("New tasks start as todo", 400);
 
+  let blockedFlag: boolean | undefined;
+  if ("blocked" in body) {
+    if (typeof body.blocked !== "boolean") return jsonError("blocked must be true or false", 400);
+    blockedFlag = body.blocked;
+  }
+  let blockedNote: string | null = null;
+  if ("blocked_note" in body) {
+    const note = asText(body.blocked_note, "blocked_note", 1000, false);
+    if (isResponse(note)) return note;
+    blockedNote = note;
+  }
+  let blockedReason: string | null = null;
+  if ("blocked_reason" in body) {
+    const reason = asText(body.blocked_reason, "blocked_reason", 1000, false);
+    if (isResponse(reason)) return reason;
+    blockedReason = reason;
+  }
+  let unblockNeeded: string | null = null;
+  if ("unblock_needed" in body) {
+    const needed = asText(body.unblock_needed, "unblock_needed", 1000, false);
+    if (isResponse(needed)) return needed;
+    unblockNeeded = needed;
+  }
+  const blocked = blockedFlag === true || (blockedFlag !== false && Boolean(blockedReason || blockedNote));
+  if (blocked && !blockedNote && blockedReason) blockedNote = blockedReason;
+  if (blocked && !blockedNote) return jsonError("A blocked task needs a note", 400);
+
   const task = await createTaskForAgent({
     agent,
     title,
     details,
     priority,
     actor: agent.slug,
+    blocked,
+    blockedNote: blocked ? blockedNote : null,
+    blockedReason: blocked ? blockedReason : null,
+    unblockNeeded: blocked ? unblockNeeded : null,
   });
   await noteAgentApiCall(agent);
   return Response.json({ ...task, agent: agent.slug }, { status: 201 });

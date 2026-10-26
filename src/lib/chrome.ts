@@ -1,7 +1,7 @@
 import "server-only";
 import { connection } from "next/server";
-import { buildBoard, presentActivity, type ActivityView } from "@/lib/board";
-import { listActivity, listAgentStatus, listAgents, listReports, listTasks } from "@/lib/data";
+import { buildBoard, presentActivity, type ActivityView, type BoardReportFallback } from "@/lib/board";
+import { listActivity, listAgentStatus, listAgents, listLatestReportsByAgent, listReports, listTasks } from "@/lib/data";
 import { moodMap, presentLiveStatus, type LiveAgentView } from "@/lib/live";
 import { etDayRange, etTodayISO } from "@/lib/time";
 import type { Agent, Mood, Task } from "@/lib/types";
@@ -47,6 +47,31 @@ export async function loadChrome(now = new Date()): Promise<{
 export async function loadBoard(now = new Date()) {
   const chrome = await loadChrome(now);
   const reports = await listReports(chrome.date);
-  const board = buildBoard(chrome.agents, chrome.tasks, reports, chrome.startMs, chrome.endMs, chrome.live);
+  let latest: BoardReportFallback | null = null;
+  if (reports.length === 0) {
+    const prior = await listLatestReportsByAgent();
+    if (prior.length > 0) {
+      const date = prior.reduce(
+        (max, report) => (report.report_date > max ? report.report_date : max),
+        prior[0].report_date,
+      );
+      if (date && date !== chrome.date) {
+        latest = {
+          date,
+          posted: prior.filter((report) => report.report_date === date).length,
+          reports: prior,
+        };
+      }
+    }
+  }
+  const board = buildBoard(
+    chrome.agents,
+    chrome.tasks,
+    reports,
+    chrome.startMs,
+    chrome.endMs,
+    chrome.live,
+    latest,
+  );
   return { ...chrome, ...board };
 }

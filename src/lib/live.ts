@@ -20,6 +20,8 @@ export const LIVE_POLL_MS = 10_000;
 
 export const WORKING_ON_MAX = 200;
 
+export const BLOCK_TEXT_MAX = 1000;
+
 export type LiveAgentView = {
   agent_id: string;
   slug: string;
@@ -36,6 +38,8 @@ export type LiveAgentView = {
   stale: boolean;
   focus_label: string;
   time_label: string;
+  blocked_reason: string | null;
+  unblock_needed: string | null;
 };
 
 export type ActivitySnippet = {
@@ -45,7 +49,7 @@ export type ActivitySnippet = {
 };
 
 export type ParsedStatus =
-  | { ok: true; state: LiveState; workingOn: string }
+  | { ok: true; state: LiveState; workingOn: string; blockedReason: string | null; unblockNeeded: string | null }
   | { ok: false; error: string };
 
 export function parseLiveState(value: unknown): { ok: true; state: LiveState } | { ok: false; error: string } {
@@ -74,12 +78,37 @@ export function parseWorkingOn(
   return { ok: true, workingOn };
 }
 
+export function parseBlockText(
+  value: unknown,
+  field: string,
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false, error: `${field} must be a string` };
+  const trimmed = value.trim();
+  if (!trimmed) return { ok: true, value: null };
+  if (Array.from(trimmed).length > BLOCK_TEXT_MAX) {
+    return { ok: false, error: `${field} must be ${BLOCK_TEXT_MAX} characters or fewer` };
+  }
+  return { ok: true, value: trimmed };
+}
+
 export function parseStatusBody(body: Record<string, unknown>): ParsedStatus {
   const state = parseLiveState(body.state);
   if (!state.ok) return state;
   const workingOn = parseWorkingOn(body.working_on, state.state);
   if (!workingOn.ok) return workingOn;
-  return { ok: true, state: state.state, workingOn: workingOn.workingOn };
+  const blockedReason = parseBlockText(body.blocked_reason, "blocked_reason");
+  if (!blockedReason.ok) return blockedReason;
+  const unblockNeeded = parseBlockText(body.unblock_needed, "unblock_needed");
+  if (!unblockNeeded.ok) return unblockNeeded;
+  const blocked = state.state === "blocked";
+  return {
+    ok: true,
+    state: state.state,
+    workingOn: workingOn.workingOn,
+    blockedReason: blocked ? blockedReason.value : null,
+    unblockNeeded: blocked ? unblockNeeded.value : null,
+  };
 }
 
 export function isLastActiveStale(lastActive: string, now: Date): boolean {
@@ -303,6 +332,8 @@ export function presentLiveStatus(
       stale: time.stale,
       focus_label: derived.focus,
       time_label: time.label,
+      blocked_reason: row?.blocked_reason ?? null,
+      unblock_needed: row?.unblock_needed ?? null,
     };
   });
 }

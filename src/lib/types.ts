@@ -18,6 +18,8 @@ export type AgentStatusRow = {
   state: LiveState;
   working_on: string;
   updated_at: string;
+  blocked_reason?: string | null;
+  unblock_needed?: string | null;
 };
 
 export type Task = {
@@ -29,6 +31,8 @@ export type Task = {
   status: TaskStatus;
   blocked: boolean;
   blocked_note: string | null;
+  blocked_reason?: string | null;
+  unblock_needed?: string | null;
   created_at: string;
   updated_at: string;
   done_at: string | null;

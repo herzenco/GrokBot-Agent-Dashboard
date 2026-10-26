@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { etDayRange, etLocalToUtc, etTodayISO, formatEtTime } from "@/lib/time";
+import { etDayRange, etLocalToUtc, etTodayISO, formatEtTime, formatIsoMonthDay, formatIsoWeekday } from "@/lib/time";
 
 describe("America/New_York clock", () => {
   it("converts 19 Oct 2026 8:05 AM ET to UTC", () => {
@@ -12,5 +12,9 @@ describe("America/New_York clock", () => {
     expect(range.end.toISOString()).toBe("2026-10-20T04:00:00.000Z");
     expect(formatEtTime(etLocalToUtc("2026-10-19", "08:05:00"))).toBe("8:05 AM");
     expect(etTodayISO(etLocalToUtc("2026-10-19", "08:05:00"))).toBe("2026-10-19");
+    expect(formatIsoMonthDay("2026-10-23")).toBe("Oct 23");
+    expect(formatIsoWeekday("2026-10-23")).toBe("Fri, Oct 23");
+    expect(formatIsoWeekday("2026-10-26")).toBe("Mon, Oct 26");
   });
 });
+
