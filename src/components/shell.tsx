@@ -39,7 +39,7 @@ export function Shell({
   activity,
   children,
 }: {
-  active: "board" | "reports" | "documents" | "outreach";
+  active: "board" | "work" | "reports" | "documents" | "outreach";
   agents: ShellAgent[];
   live: LiveAgentView[];
   activity: ActivityView[];
@@ -85,6 +85,9 @@ export function Shell({
               <nav className="nav" aria-label="Main">
                 <Link href="/" className={active === "board" ? "nav-link active" : "nav-link"} aria-current={active === "board" ? "page" : undefined}>
                   Board
+                </Link>
+                <Link href="/work" className={active === "work" ? "nav-link active" : "nav-link"} aria-current={active === "work" ? "page" : undefined}>
+                  Work
                 </Link>
                 <Link href="/reports" className={active === "reports" ? "nav-link active" : "nav-link"} aria-current={active === "reports" ? "page" : undefined}>
                   Reports

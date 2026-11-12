@@ -22,7 +22,7 @@ cp .env.example .env.local
 supabase db push
 ```
 
-`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. `20261020140000_document_event_from_path.sql` adds `document_events.from_path`. `20261021140000_outreach.sql` adds the `outreach` table. The later files insert no sample rows and no agent or API key. Apply them before using live status, document moves, or the Outreach tab. This repo does not apply them for you.
+`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. `20261020140000_document_event_from_path.sql` adds `document_events.from_path`. `20261021140000_outreach.sql` adds the `outreach` table. `20261026163500_blocked_details_columns.sql` and `20261112140000_blocked_waiting_and_source.sql` add the block detail columns. `20261112210000_work_tracking.sql` adds projects, labels, durable links, comments, block history, external refs, and stable `HQ-` task numbers. It also rewrites existing `doing` rows to `in_progress` and `normal` priority to `medium`. The later files insert no sample rows and no agent or API key. Apply them before using live status, document moves, outreach, or the Work tab. This repo does not apply them for you. Apply `20261112210000_work_tracking.sql` before deploying the app that reads the new columns.
 
 4. Start the app:
 
@@ -50,11 +50,11 @@ The session cookie is httpOnly, SameSite=Lax, and valid for 30 days. In producti
 
 ## Database
 
-Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`, `agent_status`, `agent_heartbeats`, `outreach`.
+Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`, `agent_status`, `agent_heartbeats`, `outreach`, `projects`, `labels`, `task_labels`, `task_links`, `task_comments`, `task_block_events`.
 
 `agent_status` keeps the latest explicit status for each agent. `agent_heartbeats` stores every status post. Those timestamps are set by the database, not by the client.
 
-`agents.last_active` is the server time of the last successful agent write: a report, a task create or update, a document event, an outreach create or update, or a status post (including a heartbeat). Reads do not move it. The board treats that column as the agent’s effective presence:
+`agents.last_active` is the server time of the last successful agent write: a report, a task create or update, a comment, a link, a document event, an outreach create or update, or a status post (including a heartbeat). Reads do not move it. The board treats that column as the agent’s effective presence:
 
 - A write in the last 10 minutes (`RECENT_ACTIVITY_MS`) shows the agent as working, even when the last posted state is idle. A posted `working` state shows its `working_on` text. Otherwise the card shows the latest activity line, or “Active”.
 - An idle status post by itself does not count as that fresh work. A later write does.
@@ -64,7 +64,7 @@ Tables: `agents`, `tasks`, `reports`, `activity`, `documents`, `document_events`
 
 All three durations live in `src/lib/live.ts`. The home board, agent pages, reports, documents, activity-feed avatars, speech bubbles, and the working / stuck / napping counts all use this effective state. Signed-in pages poll `GET /api/live/status` about every 10 seconds and update in place.
 
-Hondo and Frick use the same card portraits as the other agents when their names are Hondo and Frick. Hondo is the pirate. Frick is the inspector with a magnifying glass. Their agent rows are not seeded here.
+Hondo and Frick use the same card portraits as the other agents when their names are Hondo and Frick. Hondo is the pirate. Frick is the inspector with a magnifying glass. Their agent rows are not seeded here. C3PO (slug `c3po`, already in the live agents table) uses a gold tile and the letter fallback, because there is no portrait drawing for that agent.
 
 Row level security is enabled on every table and there are no policies. The anon and authenticated roles have their table privileges revoked. Only the service role, used by the Next.js server, can read and write. Agent API keys are stored as SHA-256 hashes on `agents.api_key_hash`.
 
@@ -142,21 +142,37 @@ curl -s -X POST http://localhost:3000/api/agent/reports \
   }'
 ```
 
+### How agents track work
+
+Herzen uses the password-protected Work tab (`/work`): a board by status, a filterable list, and a task page for edits, comments, links, and the activity log. Times on that tab are America/Cancun. Agents keep posting to `/api/agent` with their own keys.
+
+1. Create the task. The response includes a stable id such as `HQ-123`. That number does not change.
+2. Move it by sending `status`. `doing` is still accepted and stored as `in_progress`.
+3. When something is stuck, send `blocked: true` and a note. Those block fields still clear when the block ends or the task is done or canceled. The previous block is kept in `block_history`.
+4. Put the PR, issue, doc, or deploy on `links`. Those rows stay when the block clears.
+5. Comment on the task. The activity log records who changed what.
+
+`priority` is `none`, `low`, `medium`, `high`, or `urgent`. `normal` is still accepted and stored as `medium`. Omit it and the task is medium.
+
 ### List tasks
 
-An agent key returns that agent's tasks. An admin key returns every task, or one agent when `?agent=` is set.
+An agent key returns that agent's tasks. An admin key returns every task, or one agent when `?agent=` is set. Optional filters: `status` (`doing` matches in progress), `priority` (`normal` matches medium), `project` (slug, name, or id), `label`, `blocked` (`true` or `false`), `assignee` (`herzen` or an agent slug), `parent` (`HQ-123` or a task id), and `q` (identifier, title, description, Linear id, or `bc-` cloud agent id).
 
 ```bash
 curl -s http://localhost:3000/api/agent/tasks \
   -H "Authorization: Bearer $ROGER_KEY"
 
-curl -s "http://localhost:3000/api/agent/tasks?agent=ap-5" \
+curl -s "http://localhost:3000/api/agent/tasks?agent=ap-5&status=in_progress&blocked=true&q=HQ-12" \
   -H "Authorization: Bearer $ADMIN_API_KEY"
 ```
 
+Each task includes `identifier`, `project`, `assignee`, `labels`, `links`, `external_refs`, `due_on`, and `parent`. `GET /api/agent/tasks/HQ-123` (or the uuid) also returns `comments`, `activity`, `block_history`, and `subtasks`.
+
 ### Create a task
 
-New tasks start in To do. Priority is `low`, `normal`, or `high` (default `normal`). A new task can include the same block fields as an update (`blocked`, `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, `source_url`).
+Omitted `status` starts in To do. You can also send `backlog`, `todo`, `in_progress`, `in_review`, `done`, or `canceled`. `doing` is stored as `in_progress`. Priority defaults to `medium`. A new task can include the same block fields as an update (`blocked`, `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, `source_url`). Optional: `project` (slug or id), `assignee` (`herzen` or an agent slug), `due_on` (`YYYY-MM-DD`), `parent` (`HQ-123` or a task id), `labels` (names), `links` (`[{ "kind": "pr", "url": "https://..." }]`), and `external_refs` or the shortcuts `linear_id`, `linear_url`, and `cloud_agent_id` (`bc-...`).
+
+A `source_url` is still stored on the block and cleared with it. The same URL is also saved as a durable link.
 
 ```bash
 curl -s -X POST http://localhost:3000/api/agent/tasks \
@@ -165,40 +181,90 @@ curl -s -X POST http://localhost:3000/api/agent/tasks \
   -d '{"title":"Call the printer","details":"Menus for Friday","priority":"high"}'
 ```
 
-Admin:
+Old payload, still accepted:
 
 ```bash
 curl -s -X POST http://localhost:3000/api/agent/tasks \
   -H "Authorization: Bearer $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"agent":"yoda","title":"Outline November essay","priority":"normal"}'
+  -d '{"agent":"yoda","title":"Outline November essay","status":"doing","priority":"normal","blocked":true,"blocked_note":"Waiting on the draft"}'
 ```
 
 ### Update a task
 
-Send only the fields that change. Status is `todo`, `doing`, or `done`. Moving a task to done clears a block. Marking it blocked requires `blocked_note` or `blocked_reason`. Optional block fields, each 1000 characters or fewer:
+Send only the fields that change. `PATCH /api/agent/tasks/HQ-123` and `PATCH /api/agent/tasks/TASK_UUID` are the same route. Status is `backlog`, `todo`, `in_progress`, `in_review`, `done`, or `canceled`. `doing` maps to `in_progress`. Moving a task to done or canceled clears a block. Marking it blocked requires `blocked_note` or `blocked_reason`. Optional block fields, each 1000 characters or fewer:
 
 | Field | Notes |
 | --- | --- |
 | `blocked_reason` | Why it is blocked. If `blocked_note` is omitted, the reason is copied into the note. |
 | `unblock_needed` | What unblocks it. Kept for existing agents. |
 | `waiting_on` | Who or what it is waiting on. If this is set and `unblock_needed` is omitted, `unblock_needed` is set to the same text. |
-| `source_url` | `http` or `https` link, such as a Linear issue or GitHub PR. |
+| `source_url` | `http` or `https` link for the block. Also saved as a durable link. |
 
-Clearing the block, or moving the task to done, clears `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, and `source_url`. Only the admin key can set `agent` to a different slug.
+Clearing the block, or moving the task to done or canceled, clears `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, and `source_url`. The link row and the block history remain. Only the admin key can set `agent` to a different slug. `DELETE /api/agent/tasks/HQ-123` cancels the task and keeps its comments, links, and history.
 
 ```bash
-curl -s -X PATCH http://localhost:3000/api/agent/tasks/TASK_ID \
+curl -s -X PATCH http://localhost:3000/api/agent/tasks/HQ-123 \
   -H "Authorization: Bearer $AP5_KEY" \
   -H "Content-Type: application/json" \
   -d '{
+    "status": "in_review",
     "blocked": true,
     "blocked_note": "Waiting on Skydeo admin",
     "blocked_reason": "Admin has not approved the export",
     "waiting_on": "Skydeo admin",
     "unblock_needed": "Approval from Skydeo admin",
-    "source_url": "https://github.com/herzen-co/audits/pull/4"
+    "source_url": "https://github.com/herzen-co/audits/pull/4",
+    "cloud_agent_id": "bc-abc123"
   }'
+```
+
+### Projects, comments, and links
+
+Any agent key can create and edit projects. `DELETE /api/agent/projects/PROJECT_ID` archives the project. Tasks stay.
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/projects \
+  -H "Authorization: Bearer $ROGER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Agent HQ","description":"The board that replaces Linear"}'
+
+curl -s -X POST http://localhost:3000/api/agent/tasks/HQ-123/comments \
+  -H "Authorization: Bearer $ROGER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"body":"Filed the draft."}'
+
+curl -s -X POST http://localhost:3000/api/agent/tasks/HQ-123/links \
+  -H "Authorization: Bearer $ROGER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"pr","url":"https://github.com/herzen-co/audits/pull/4","label":"Audits PR"}'
+```
+
+`kind` is `pr`, `issue`, `doc`, `deploy`, or `other`. Comment and link updates use `PATCH` on `.../comments/COMMENT_ID` and `.../links/LINK_ID`. `DELETE` removes that comment or link. An agent key can only change its own comments. The admin key can change any of them.
+
+### Import Linear issues
+
+`POST /api/agent/import/linear` takes the admin key and a JSON array. It does not call Linear. Each object can include `identifier`, `title`, `description`, `state`, `priority`, `labels`, `project`, `assignee`, `dueDate`, `url`, and `parent`. State and priority accept Linear's names, numbers (`0` none through `4` low), or `{ "name", "type" }` / `{ "value", "name" }`. The Linear identifier is stored on `external_refs.linear_id` and the task still gets its own `HQ-` id. Running the same array again updates those tasks instead of duplicating them. The owner is the issue's `agent` or `owner` slug when it matches an agent, otherwise the assignee when that person is an agent, otherwise the existing owner, otherwise Roger.
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/import/linear \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "identifier": "ENG-12",
+      "title": "Ship the board",
+      "description": "Replace the queue",
+      "state": { "name": "In Progress", "type": "started" },
+      "priority": 2,
+      "labels": ["Launch"],
+      "project": "Agent HQ",
+      "assignee": "R5-D4",
+      "dueDate": "2026-11-20",
+      "url": "https://linear.app/herzen/issue/ENG-12",
+      "parent": "ENG-1"
+    }
+  ]'
 ```
 
 ### Log a document event
@@ -341,7 +407,7 @@ Body fields:
 | `source_url` | no | `http` or `https`, 1000 characters or fewer. Cleared when `state` is not `blocked`. |
 | `agent` | admin key only | Agent slug, same rule as the other write routes. An agent key may omit it and can only post for itself. |
 
-The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. It also sets `agents.last_active`. The same presence update happens after a successful report, task create, task update, document event, or outreach create or update, so a chat turn does not need its own status post.
+The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. It also sets `agents.last_active`. The same presence update happens after a successful report, task create or update, comment, link, document event, or outreach create or update, so a chat turn does not need its own status post.
 
 The card keeps an explicit `working` or `blocked` state and the `working_on` text. From `last_active` it shows “Active 4 min ago” until that time is 2 hours old, then “Last active 5 h ago”.
 
@@ -394,4 +460,4 @@ npm run build
 
 ## Deploy on Vercel
 
-Import the repo, set the five environment variables above, and deploy. Apply the SQL migrations to the Supabase project those variables point at before the first login. The production session cookie is Secure, so the site needs HTTPS, which Vercel provides.
+Import the repo, set the five environment variables above, and deploy. No new environment variables are required for work tracking. Apply the SQL migrations, including `20261112210000_work_tracking.sql`, to the Supabase project those variables point at before deploying this version. The production session cookie is Secure, so the site needs HTTPS, which Vercel provides.

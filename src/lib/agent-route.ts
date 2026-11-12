@@ -2,6 +2,7 @@ import "server-only";
 import { resolveBearer, type BearerActor } from "@/lib/api-key";
 import { findAgentByKeyHash, getAgentBySlug } from "@/lib/data";
 import type { Agent, DocAction, Priority, TaskStatus } from "@/lib/types";
+import { canonicalPriority, parsePriority, parseStatus } from "@/lib/work";
 import { isIsoDate } from "@/lib/time";
 
 export function jsonError(message: string, status: number): Response {
@@ -56,15 +57,17 @@ export async function readJson(req: Request): Promise<Record<string, unknown> | 
   return body as Record<string, unknown>;
 }
 
-export function asPriority(value: unknown, fallback: Priority = "normal"): Priority | Response {
-  if (value === undefined) return fallback;
-  if (value === "low" || value === "normal" || value === "high") return value;
-  return jsonError("Priority must be low, normal, or high", 400);
+export function asPriority(value: unknown, fallback: Priority = "medium"): Priority | Response {
+  if (value === undefined) return canonicalPriority(fallback);
+  const parsed = parsePriority(value);
+  if (!parsed.ok) return jsonError(parsed.error, 400);
+  return parsed.priority;
 }
 
 export function asStatus(value: unknown): TaskStatus | Response {
-  if (value === "todo" || value === "doing" || value === "done") return value;
-  return jsonError("Status must be todo, doing, or done", 400);
+  const parsed = parseStatus(value);
+  if (!parsed.ok) return jsonError(parsed.error, 400);
+  return parsed.status;
 }
 
 export function asAction(value: unknown): DocAction | Response {

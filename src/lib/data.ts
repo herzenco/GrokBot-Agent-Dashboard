@@ -5,9 +5,7 @@ import { db } from "@/lib/db";
 import type { OutreachRow, OutreachStatus } from "@/lib/outreach";
 import { readReportBlocked } from "@/lib/blocked-payload";
 import type { ActivityRow, Agent, AgentStatusRow, DocumentEvent, DocumentRow, Report, Task } from "@/lib/types";
-
-const TASK_COLUMNS =
-  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,created_at,updated_at,done_at";
+import { TASK_COLUMNS } from "@/lib/work";
 
 function unwrap<T>(data: T | null, error: { message: string } | null): T {
   if (error) throw new Error(error.message);

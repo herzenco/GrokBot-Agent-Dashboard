@@ -10,7 +10,7 @@ export function NewTaskModal({ agents, onClose }: { agents: ShellAgent[]; onClos
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
-  const [priority, setPriority] = useState("normal");
+  const [priority, setPriority] = useState("medium");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -62,9 +62,11 @@ export function NewTaskModal({ agents, onClose }: { agents: ShellAgent[]; onClos
             <label className="field">
               Priority
               <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+                <option value="none">None</option>
                 <option value="low">Low</option>
-                <option value="normal">Normal</option>
+                <option value="medium">Medium</option>
                 <option value="high">High</option>
+                <option value="urgent">Urgent</option>
               </select>
             </label>
           </div>
