@@ -18,6 +18,10 @@ export type AgentStatusRow = {
   state: LiveState;
   working_on: string;
   updated_at: string;
+  blocked_reason?: string | null;
+  unblock_needed?: string | null;
+  waiting_on?: string | null;
+  source_url?: string | null;
 };
 
 export type Task = {
@@ -29,10 +33,25 @@ export type Task = {
   status: TaskStatus;
   blocked: boolean;
   blocked_note: string | null;
+  blocked_reason?: string | null;
+  unblock_needed?: string | null;
+  waiting_on?: string | null;
+  source_url?: string | null;
   created_at: string;
   updated_at: string;
   done_at: string | null;
 };
+
+/** One blocked line on a daily report. A string is the legacy shape. */
+export type ReportBlockedObject = {
+  title: string;
+  reason: string | null;
+  waiting_on: string | null;
+  source_url: string | null;
+  source_label: string | null;
+};
+
+export type ReportBlockedItem = string | ReportBlockedObject;
 
 export type Report = {
   id: string;
@@ -40,7 +59,7 @@ export type Report = {
   report_date: string;
   done: string[];
   in_progress: string[];
-  blocked: string[];
+  blocked: ReportBlockedItem[];
   posted_at: string;
 };
 

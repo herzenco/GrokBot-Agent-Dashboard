@@ -88,9 +88,25 @@ export async function reassignTaskAction(taskId: string, agentId: string): Promi
   return patchOwned(taskId, { agent_id: agent.id });
 }
 
-export async function setTaskBlockedAction(taskId: string, blocked: boolean, note: string): Promise<ActionResult> {
+export async function setTaskBlockedAction(
+  taskId: string,
+  blocked: boolean,
+  note: string,
+  blockedReason?: string | null,
+  unblockNeeded?: string | null,
+): Promise<ActionResult> {
   const trimmed = note.trim();
-  if (blocked && !trimmed) return { ok: false, error: "Add a note about what is stuck" };
-  if (trimmed.length > 1000) return { ok: false, error: "Block note must be 1000 characters or fewer" };
-  return patchOwned(taskId, { blocked, blocked_note: blocked ? trimmed : null });
+  const reason = typeof blockedReason === "string" ? blockedReason.trim() : "";
+  const needed = typeof unblockNeeded === "string" ? unblockNeeded.trim() : "";
+  if (trimmed.length > 1000 || reason.length > 1000) {
+    return { ok: false, error: "Block note must be 1000 characters or fewer" };
+  }
+  if (needed.length > 1000) return { ok: false, error: "Unblock note must be 1000 characters or fewer" };
+  if (blocked && !trimmed && !reason) return { ok: false, error: "Add a note about what is stuck" };
+  return patchOwned(taskId, {
+    blocked,
+    blocked_note: blocked ? trimmed || reason : null,
+    blocked_reason: blocked ? reason || trimmed || null : null,
+    unblock_needed: blocked ? needed || null : null,
+  });
 }

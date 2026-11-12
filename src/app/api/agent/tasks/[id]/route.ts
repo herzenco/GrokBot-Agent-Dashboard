@@ -1,5 +1,6 @@
 import { noteAgentApiCall } from "@/lib/agent-activity";
 import { authenticate, asPriority, asStatus, asText, isResponse, jsonError, readJson } from "@/lib/agent-route";
+import { parseHttpUrl } from "@/lib/url";
 import { getTask, listAgents } from "@/lib/data";
 import { applyTaskPatch } from "@/lib/mutations";
 import { isUuid } from "@/lib/url";
@@ -50,6 +51,26 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     const note = asText(body.blocked_note, "blocked_note", 1000, false);
     if (isResponse(note)) return note;
     patch.blocked_note = note;
+  }
+  if ("blocked_reason" in body) {
+    const reason = asText(body.blocked_reason, "blocked_reason", 1000, false);
+    if (isResponse(reason)) return reason;
+    patch.blocked_reason = reason;
+  }
+  if ("unblock_needed" in body) {
+    const needed = asText(body.unblock_needed, "unblock_needed", 1000, false);
+    if (isResponse(needed)) return needed;
+    patch.unblock_needed = needed;
+  }
+  if ("waiting_on" in body) {
+    const waiting = asText(body.waiting_on, "waiting_on", 1000, false);
+    if (isResponse(waiting)) return waiting;
+    patch.waiting_on = waiting;
+  }
+  if ("source_url" in body) {
+    const source = parseHttpUrl(body.source_url, "source_url");
+    if (!source.ok) return jsonError(source.error, 400);
+    patch.source_url = source.value;
   }
   const keyAgent = actor.admin ? owner : (agents.find((agent) => agent.id === actor.agent.id) ?? owner);
   let acting = keyAgent;

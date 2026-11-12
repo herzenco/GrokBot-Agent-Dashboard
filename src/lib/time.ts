@@ -118,6 +118,26 @@ export function formatEtDateTime(date: Date): string {
   return `${parts.monthShort} ${parts.dayPart}, ${formatEtTime(date)} ET`;
 }
 
+const CANCUN = "America/Cancun";
+
+/** Nov 12, 2026, 9:00 AM (America/Cancun). Null when the timestamp cannot be read. */
+export function formatCancunTimestamp(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const formatted = cleanMeridiem(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: CANCUN,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date),
+  );
+  return `${formatted} (America/Cancun)`;
+}
+
 export function ageLabel(iso: string, now = Date.now()): string {
   const ms = Math.max(0, now - new Date(iso).getTime());
   const minutes = Math.floor(ms / 60000);
@@ -131,4 +151,18 @@ export function ageLabel(iso: string, now = Date.now()): string {
 
 export function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(etLocalToUtc(value).getTime());
+}
+
+/** Oct 23, from a YYYY-MM-DD calendar date in America/New_York. */
+export function formatIsoMonthDay(dateISO: string): string {
+  if (!isIsoDate(dateISO)) return dateISO;
+  const parts = readParts(etLocalToUtc(dateISO, "12:00:00"));
+  return `${parts.monthShort} ${parts.dayPart}`;
+}
+
+/** Fri, Oct 23 */
+export function formatIsoWeekday(dateISO: string): string {
+  if (!isIsoDate(dateISO)) return dateISO;
+  const parts = readParts(etLocalToUtc(dateISO, "12:00:00"));
+  return `${parts.weekday.slice(0, 3)}, ${parts.monthShort} ${parts.dayPart}`;
 }

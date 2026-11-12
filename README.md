@@ -103,6 +103,30 @@ curl -s -X POST http://localhost:3000/api/agent/reports \
   }'
 ```
 
+`blocked` is an array. Each item is either a string (existing agents) or an object. Strings stay limited to 300 characters. Object fields are limited to 1000 characters, and `source_url` must be `http` or `https`.
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/reports \
+  -H "Authorization: Bearer $ROGER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "done": ["Morning brief sent"],
+    "in_progress": ["Weekly priorities memo for Tito"],
+    "blocked": [
+      "Payroll export on hold per Herzen",
+      {
+        "title": "herzenco-audits PRs #10, #11, #12",
+        "reason": "Review pending",
+        "waiting_on": "Herzen",
+        "source_url": "https://github.com/herzen-co/audits/pull/10",
+        "source_label": "GitHub PR"
+      }
+    ]
+  }'
+```
+
+`title` is required on an object. `reason`, `waiting_on`, `source_url`, and `source_label` are optional. A missing field is stored as null and the dashboard shows "Not provided". Reposting the same agent and date still overwrites the previous report.
+
 Admin, acting as Chopper:
 
 ```bash
@@ -132,7 +156,7 @@ curl -s "http://localhost:3000/api/agent/tasks?agent=ap-5" \
 
 ### Create a task
 
-New tasks start in To do. Priority is `low`, `normal`, or `high` (default `normal`).
+New tasks start in To do. Priority is `low`, `normal`, or `high` (default `normal`). A new task can include the same block fields as an update (`blocked`, `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, `source_url`).
 
 ```bash
 curl -s -X POST http://localhost:3000/api/agent/tasks \
@@ -152,13 +176,29 @@ curl -s -X POST http://localhost:3000/api/agent/tasks \
 
 ### Update a task
 
-Send only the fields that change. Status is `todo`, `doing`, or `done`. Moving a task to done clears a block. Marking it blocked requires `blocked_note`. Only the admin key can set `agent` to a different slug.
+Send only the fields that change. Status is `todo`, `doing`, or `done`. Moving a task to done clears a block. Marking it blocked requires `blocked_note` or `blocked_reason`. Optional block fields, each 1000 characters or fewer:
+
+| Field | Notes |
+| --- | --- |
+| `blocked_reason` | Why it is blocked. If `blocked_note` is omitted, the reason is copied into the note. |
+| `unblock_needed` | What unblocks it. Kept for existing agents. |
+| `waiting_on` | Who or what it is waiting on. If this is set and `unblock_needed` is omitted, `unblock_needed` is set to the same text. |
+| `source_url` | `http` or `https` link, such as a Linear issue or GitHub PR. |
+
+Clearing the block, or moving the task to done, clears `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, and `source_url`. Only the admin key can set `agent` to a different slug.
 
 ```bash
 curl -s -X PATCH http://localhost:3000/api/agent/tasks/TASK_ID \
   -H "Authorization: Bearer $AP5_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"blocked": true, "blocked_note": "Waiting on Skydeo admin"}'
+  -d '{
+    "blocked": true,
+    "blocked_note": "Waiting on Skydeo admin",
+    "blocked_reason": "Admin has not approved the export",
+    "waiting_on": "Skydeo admin",
+    "unblock_needed": "Approval from Skydeo admin",
+    "source_url": "https://github.com/herzen-co/audits/pull/4"
+  }'
 ```
 
 ### Log a document event
@@ -295,6 +335,10 @@ Body fields:
 | --- | --- | --- |
 | `state` | yes | `working`, `idle`, or `blocked` |
 | `working_on` | when `state` is `working` or `blocked` | What the agent is doing now. A single line, 200 characters or fewer. Optional for `idle`; blank is stored as an empty string. |
+| `blocked_reason` | no | Why the agent is blocked. 1000 characters or fewer. Stored only while `state` is `blocked`. |
+| `unblock_needed` | no | What unblocks the agent. 1000 characters or fewer. Stored only while `state` is `blocked`. |
+| `waiting_on` | no | Who or what the agent is waiting on. 1000 characters or fewer. If this is set and `unblock_needed` is omitted, `unblock_needed` is stored as the same text. Cleared when `state` is not `blocked`. |
+| `source_url` | no | `http` or `https`, 1000 characters or fewer. Cleared when `state` is not `blocked`. |
 | `agent` | admin key only | Agent slug, same rule as the other write routes. An agent key may omit it and can only post for itself. |
 
 The server records a heartbeat and sets the timestamp. A client-supplied time is ignored. It also sets `agents.last_active`. The same presence update happens after a successful report, task create, task update, document event, or outreach create or update, so a chat turn does not need its own status post.
@@ -309,7 +353,7 @@ Responses:
 
 | Status | Body |
 | --- | --- |
-| 200 | `{ "agent", "state", "working_on", "updated_at" }` |
+| 200 | `{ "agent", "state", "working_on", "updated_at", "blocked_reason", "unblock_needed", "waiting_on", "source_url" }` |
 | 400 | `{ "error" }` when the JSON or a field is invalid |
 | 401 | `{ "error": "Unauthorized" }` when the bearer key is missing or unknown |
 | 403 | `{ "error" }` when an agent key tries to act for someone else |
@@ -328,7 +372,14 @@ Admin, acting as Chopper:
 curl -s -X POST http://localhost:3000/api/agent/status \
   -H "Authorization: Bearer $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"agent":"chopper","state":"blocked","working_on":"Waiting on the Coral Gables citations"}'
+  -d '{
+    "agent": "chopper",
+    "state": "blocked",
+    "working_on": "Waiting on the Coral Gables citations",
+    "blocked_reason": "Citations have not arrived",
+    "waiting_on": "Herzen",
+    "source_url": "https://linear.app/herzen/issue/HQ-12"
+  }'
 ```
 
 A report, task change, document event, outreach create or update, or status post writes an `activity` row, so the live feed shows that call. The actor is the agent slug. With the admin key, pass `agent`: the document event, the outreach row, and the activity row are stored as that agent. A task update that changes nothing still refreshes `last_active` and does not add an activity row. Edits from the dashboard stay attributed to `tito` and do not move `last_active`.
