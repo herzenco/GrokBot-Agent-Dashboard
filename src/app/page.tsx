@@ -2,7 +2,8 @@ import Link from "next/link";
 import { ActivityPanel } from "@/components/activity-panel";
 import { BlockedLaunch, BlockedStatButton } from "@/components/blocked-detail-modal";
 import { CheckIcon } from "@/components/icons";
-import { LiveAgentNow, LiveAvatar, LiveBubbles, LiveIndicator, LiveMoodPill, LiveSummary } from "@/components/live-status";
+import { ClickableAgentNow, ClickableBubbles, ClickableMoodPill } from "@/components/blocked-live";
+import { LiveAvatar, LiveIndicator, LiveSummary } from "@/components/live-status";
 import { Shell, Split } from "@/components/shell";
 import { tileVar } from "@/lib/avatar-model";
 import { collectBlockedEntries } from "@/lib/blocked";
@@ -89,50 +90,71 @@ export default async function BoardPage() {
               const shown = card.doneToday.slice(0, 3);
               const extra = card.doneCount - shown.length;
               const blocks = blockedEntries.filter((entry) => entry.agentId === card.agent.id);
+              const liveBlocks = blocks.filter((entry) => entry.kicker === "Live status");
+              const statusBlocks = liveBlocks.length > 0 ? liveBlocks : blocks;
+              const blockHeading = `${card.agent.name} is blocked`;
               return (
                 <article key={card.agent.id} className="card">
-                  <Link href={`/agents/${card.agent.slug}`} className="card-fill">
                   <div className="card-head" style={{ background: tileVar(card.agent.name) }}>
-                    <LiveAvatar name={card.agent.name} agentId={card.agent.id} fallback={card.mood} size={60} />
-                    <div className="card-id">
-                      <div className="card-name">{card.agent.name}</div>
-                      <div className="card-role">{card.agent.role}</div>
-                    </div>
-                    <LiveMoodPill agentId={card.agent.id} fallback={card.mood} />
+                    <Link href={`/agents/${card.agent.slug}`} className="card-identity">
+                      <LiveAvatar name={card.agent.name} agentId={card.agent.id} fallback={card.mood} size={60} />
+                      <div className="card-id">
+                        <div className="card-name">{card.agent.name}</div>
+                        <div className="card-role">{card.agent.role}</div>
+                      </div>
+                    </Link>
+                    <ClickableMoodPill
+                      agentId={card.agent.id}
+                      fallback={card.mood}
+                      blockedEntries={statusBlocks}
+                      heading={blockHeading}
+                    />
                   </div>
                   <div className="card-body">
-                    <LiveAgentNow agentId={card.agent.id} />
-                    <LiveBubbles agentId={card.agent.id} todo={card.todo} fallback={card.bubbles} />
-                    <div className="done-block">
-                      <span className="done-label">
-                        Done today <span className="done-count">{card.doneCount}</span>
-                      </span>
-                      <ul className="check-list">
-                        {shown.map((title) => (
-                          <li key={title}>
-                            <CheckIcon />
-                            <span>{title}</span>
-                          </li>
-                        ))}
-                        {extra > 0 ? <li className="more">+{extra} more</li> : null}
-                        {card.doneCount === 0 ? <li className="quiet-line">Nothing yet</li> : null}
-                      </ul>
-                    </div>
-                    <div className="card-foot">
-                      <span>
-                        {card.todo} to do
-                      </span>
-                      <span className={card.reportTone === "missing" ? "missing" : card.reportTone === "latest" ? "report-latest" : ""}>
-                        {card.reportLabel}
-                      </span>
-                    </div>
+                    <ClickableAgentNow agentId={card.agent.id} blockedEntries={statusBlocks} heading={blockHeading} />
+                    <ClickableBubbles
+                      agentId={card.agent.id}
+                      todo={card.todo}
+                      fallback={card.bubbles}
+                      blockedEntries={statusBlocks}
+                      heading={blockHeading}
+                    />
+                    <Link href={`/agents/${card.agent.slug}`} className="card-rest">
+                      <div className="done-block">
+                        <span className="done-label">
+                          Done today <span className="done-count">{card.doneCount}</span>
+                        </span>
+                        <ul className="check-list">
+                          {shown.map((title) => (
+                            <li key={title}>
+                              <CheckIcon />
+                              <span>{title}</span>
+                            </li>
+                          ))}
+                          {extra > 0 ? <li className="more">+{extra} more</li> : null}
+                          {card.doneCount === 0 ? <li className="quiet-line">Nothing yet</li> : null}
+                        </ul>
+                      </div>
+                      <div className="card-foot">
+                        <span>{card.todo} to do</span>
+                        <span className={card.reportTone === "missing" ? "missing" : card.reportTone === "latest" ? "report-latest" : ""}>
+                          {card.reportLabel}
+                        </span>
+                      </div>
+                    </Link>
                   </div>
-                  </Link>
                   {blocks.length > 0 ? (
                     <div className="card-block-bar">
-                      <BlockedLaunch className="blocked-launch" entries={blocks} heading={`${card.agent.name} is blocked`}>
-                        Blocked · view details
-                      </BlockedLaunch>
+                      {blocks.map((entry) => (
+                        <BlockedLaunch
+                          key={entry.id}
+                          className="blocked-launch"
+                          entries={[entry]}
+                          heading={blockHeading}
+                        >
+                          {entry.kicker}: {entry.whatBlocked}
+                        </BlockedLaunch>
+                      ))}
                     </div>
                   ) : null}
                 </article>

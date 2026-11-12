@@ -1,4 +1,5 @@
 import type { Agent, AgentStatusRow, LiveState, Mood } from "@/lib/types";
+import { parseHttpUrl } from "@/lib/url";
 
 /** After this long with no agent API call, the card says "Last active" instead of "Active". */
 export const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
@@ -40,6 +41,8 @@ export type LiveAgentView = {
   time_label: string;
   blocked_reason: string | null;
   unblock_needed: string | null;
+  waiting_on: string | null;
+  source_url: string | null;
 };
 
 export type ActivitySnippet = {
@@ -49,7 +52,15 @@ export type ActivitySnippet = {
 };
 
 export type ParsedStatus =
-  | { ok: true; state: LiveState; workingOn: string; blockedReason: string | null; unblockNeeded: string | null }
+  | {
+      ok: true;
+      state: LiveState;
+      workingOn: string;
+      blockedReason: string | null;
+      unblockNeeded: string | null;
+      waitingOn: string | null;
+      sourceUrl: string | null;
+    }
   | { ok: false; error: string };
 
 export function parseLiveState(value: unknown): { ok: true; state: LiveState } | { ok: false; error: string } {
@@ -101,13 +112,21 @@ export function parseStatusBody(body: Record<string, unknown>): ParsedStatus {
   if (!blockedReason.ok) return blockedReason;
   const unblockNeeded = parseBlockText(body.unblock_needed, "unblock_needed");
   if (!unblockNeeded.ok) return unblockNeeded;
+  const waitingOn = parseBlockText(body.waiting_on, "waiting_on");
+  if (!waitingOn.ok) return waitingOn;
+  const sourceUrl = parseHttpUrl(body.source_url, "source_url", BLOCK_TEXT_MAX);
+  if (!sourceUrl.ok) return sourceUrl;
   const blocked = state.state === "blocked";
+  const waiting = blocked ? waitingOn.value : null;
+  const needed = blocked ? unblockNeeded.value ?? waiting : null;
   return {
     ok: true,
     state: state.state,
     workingOn: workingOn.workingOn,
     blockedReason: blocked ? blockedReason.value : null,
-    unblockNeeded: blocked ? unblockNeeded.value : null,
+    unblockNeeded: needed,
+    waitingOn: waiting,
+    sourceUrl: blocked ? sourceUrl.value : null,
   };
 }
 
@@ -332,8 +351,10 @@ export function presentLiveStatus(
       stale: time.stale,
       focus_label: derived.focus,
       time_label: time.label,
-      blocked_reason: row?.blocked_reason ?? null,
-      unblock_needed: row?.unblock_needed ?? null,
+      blocked_reason: derived.state === "blocked" ? (row?.blocked_reason ?? null) : null,
+      unblock_needed: derived.state === "blocked" ? (row?.unblock_needed ?? null) : null,
+      waiting_on: derived.state === "blocked" ? (row?.waiting_on ?? null) : null,
+      source_url: derived.state === "blocked" ? (row?.source_url ?? null) : null,
     };
   });
 }

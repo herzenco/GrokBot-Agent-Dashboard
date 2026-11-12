@@ -1,5 +1,31 @@
 const ALLOWED = new Set(["http:", "https:", "obsidian:"]);
 
+export function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Optional http(s) URL. Blank becomes null. Anything else is an error. */
+export function parseHttpUrl(
+  value: unknown,
+  field: string,
+  max = 1000,
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value === undefined || value === null || value === "") return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false, error: `${field} must be a string` };
+  const trimmed = value.trim();
+  if (!trimmed) return { ok: true, value: null };
+  if (Array.from(trimmed).length > max) {
+    return { ok: false, error: `${field} must be ${max} characters or fewer` };
+  }
+  if (!isHttpUrl(trimmed)) return { ok: false, error: `${field} must be http or https` };
+  return { ok: true, value: trimmed };
+}
+
 export function safeHref(url: string | null | undefined): string | null {
   if (!url) return null;
   try {

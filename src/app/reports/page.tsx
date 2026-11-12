@@ -4,6 +4,7 @@ import { DatePicker } from "@/components/date-picker";
 import { LiveAvatar } from "@/components/live-status";
 import { ReportBlockedColumn } from "@/components/report-blocked";
 import { Shell, Split } from "@/components/shell";
+import { readReportBlocked } from "@/lib/blocked-payload";
 import { loadChrome } from "@/lib/chrome";
 import { listLatestReportsByAgent, listReportDates, listReports } from "@/lib/data";
 import { resolveReportDate } from "@/lib/reports-view";
@@ -91,7 +92,7 @@ export default async function ReportsPage({
               const mood = chrome.moods.get(agent.id) ?? "idle";
               const done = lines(report?.done);
               const inProgress = lines(report?.in_progress);
-              const blocked = lines(report?.blocked);
+              const blocked = readReportBlocked(report?.blocked);
               return (
                 <article key={agent.id} className={report ? "report-card" : "report-card is-missing"}>
                   <header className="report-head">
@@ -115,6 +116,7 @@ export default async function ReportsPage({
                         agent={{ id: agent.id, name: agent.name, slug: agent.slug, role: agent.role }}
                         mood={mood}
                         reportDate={effectiveDate}
+                        postedAt={report.posted_at}
                       />
                     </div>
                   ) : priorOther ? (

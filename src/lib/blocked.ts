@@ -1,7 +1,10 @@
-import { formatIsoMonthDay } from "@/lib/time";
-import type { LiveState, Mood, Task } from "@/lib/types";
+import { formatCancunTimestamp, formatIsoMonthDay } from "@/lib/time";
+import type { LiveState, Mood, ReportBlockedItem, Task } from "@/lib/types";
+import { isHttpUrl } from "@/lib/url";
 
 export const BLOCK_REVIEW_FALLBACK = "Review block note and confirm next step with agent";
+
+export const NOT_PROVIDED = "Not provided";
 
 export type BlockedDetails = {
   whatBlocked: string;
@@ -15,12 +18,14 @@ export type TaskBlockedInput = {
   blocked_note?: string | null;
   blocked_reason?: string | null;
   unblock_needed?: string | null;
+  waiting_on?: string | null;
 };
 
 export type AgentBlockedInput = {
   working_on?: string | null;
   blocked_reason?: string | null;
   unblock_needed?: string | null;
+  waiting_on?: string | null;
 };
 
 export type ReportBlockedInput = {
@@ -52,7 +57,22 @@ export type BlockedEntry = {
   whatBlocked: string;
   whyBlocked: string;
   unblockNeeded: string;
+  waitingOn: string;
+  reportedAt: string | null;
+  sourceUrl: string | null;
+  sourceLabel: string | null;
   task: BlockedEntryTask | null;
+};
+
+export type BlockedDetailView = {
+  agent: string;
+  item: string;
+  reason: string;
+  waitingOn: string;
+  reportedAt: string;
+  sourceHref: string | null;
+  sourceLabel: string;
+  unblockNeeded: string;
 };
 
 function squash(value: string | null | undefined): string {
@@ -81,6 +101,19 @@ function inferUnblock(what: string, why: string, needRaw: string): string {
     return name ? `Reconnect ${name}` : "Reconnect";
   }
   return sentence(cleaned);
+}
+
+/** Who or what a free-text block says it is waiting on. Empty when the line never says. */
+export function waitingPhrase(text: string): string {
+  const value = squash(text);
+  if (!value) return "";
+  const waiting = value.match(/\bwaiting on\s+(.+)$/i);
+  if (waiting) return sentence(waiting[1]);
+  const awaiting = value.match(/\bawaiting\s+(.+)$/i);
+  if (awaiting) return sentence(awaiting[1]);
+  const hold = value.match(/\bon hold per\s+(.+)$/i);
+  if (hold) return sentence(tidy(hold[1]));
+  return "";
 }
 
 function extractNeedPhrase(text: string): string | null {
@@ -224,7 +257,7 @@ function fromTask(task: TaskBlockedInput): BlockedDetails {
   let what = title;
   if (details && details.toLowerCase() !== title.toLowerCase() && !title.toLowerCase().includes(details.toLowerCase())) {
     const short = details.length > 180 ? `${details.slice(0, 177).trimEnd()}…` : details;
-    what = `${title} — ${short}`;
+    what = `${title}: ${short}`;
   }
 
   return {
@@ -262,7 +295,75 @@ export function resolveBlockedDetails(
   return fromAgent(input);
 }
 
-function entryBase(agent: BlockedAgentRef, mood: Mood, id: string, kicker: string, details: BlockedDetails): BlockedEntry {
+const REPORT_SOURCE = /^\/reports\?date=\d{4}-\d{2}-\d{2}$/;
+
+export function sourceHref(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (REPORT_SOURCE.test(trimmed)) return trimmed;
+  return isHttpUrl(trimmed) ? trimmed : null;
+}
+
+export function sourceLabelFor(href: string, explicit?: string | null): string {
+  const label = explicit?.replace(/\s+/g, " ").trim();
+  if (label) return label;
+  if (href.startsWith("/reports")) return "Daily report";
+  try {
+    const parsed = new URL(href);
+    const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    if (host === "github.com" && /\/pull\/\d+/.test(parsed.pathname)) return "GitHub PR";
+    if (host === "linear.app" || host.endsWith(".linear.app")) return "Linear issue";
+  } catch {
+    return "Source";
+  }
+  return "Source";
+}
+
+export function reportSourcePath(reportDate: string): string | null {
+  const date = reportDate.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `/reports?date=${date}` : null;
+}
+
+function shown(value: string): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  return text || NOT_PROVIDED;
+}
+
+/** Fields the detail view renders. Missing values stay visible as "Not provided". */
+export function blockedDetailFields(entry: BlockedEntry): BlockedDetailView {
+  const item = shown(entry.whatBlocked);
+  const rawReason = entry.whyBlocked.replace(/\s+/g, " ").trim();
+  const reason = !rawReason || rawReason.toLowerCase() === item.toLowerCase() ? NOT_PROVIDED : rawReason;
+  const href = sourceHref(entry.sourceUrl);
+  const reported = entry.reportedAt ? formatCancunTimestamp(entry.reportedAt) : null;
+  return {
+    agent: shown(entry.agentName),
+    item,
+    reason,
+    waitingOn: shown(entry.waitingOn),
+    reportedAt: reported ?? NOT_PROVIDED,
+    sourceHref: href,
+    sourceLabel: href ? sourceLabelFor(href, entry.sourceLabel) : NOT_PROVIDED,
+    unblockNeeded: shown(entry.unblockNeeded),
+  };
+}
+
+type EntryExtra = {
+  waitingOn?: string;
+  reportedAt?: string | null;
+  sourceUrl?: string | null;
+  sourceLabel?: string | null;
+};
+
+function entryBase(
+  agent: BlockedAgentRef,
+  mood: Mood,
+  id: string,
+  kicker: string,
+  details: BlockedDetails,
+  extra: EntryExtra = {},
+): BlockedEntry {
   return {
     id,
     agentId: agent.id,
@@ -274,8 +375,21 @@ function entryBase(agent: BlockedAgentRef, mood: Mood, id: string, kicker: strin
     whatBlocked: details.whatBlocked,
     whyBlocked: details.whyBlocked,
     unblockNeeded: details.unblockNeeded,
+    waitingOn: (extra.waitingOn ?? "").replace(/\s+/g, " ").trim(),
+    reportedAt: extra.reportedAt ?? null,
+    sourceUrl: extra.sourceUrl ?? null,
+    sourceLabel: extra.sourceLabel?.replace(/\s+/g, " ").trim() || null,
     task: null,
   };
+}
+
+function taskWaiting(task: TaskBlockedInput & { blocked_note?: string | null }): string {
+  const explicit = squash(task.waiting_on);
+  if (explicit) return sentence(explicit);
+  const phrase = waitingPhrase(`${task.blocked_note ?? ""} ${task.details ?? ""}`);
+  if (phrase) return phrase;
+  const needed = squash(task.unblock_needed);
+  return needed ? sentence(needed) : "";
 }
 
 export function taskBlockedEntry(agent: BlockedAgentRef, task: Task, mood: Mood): BlockedEntry | null {
@@ -286,9 +400,14 @@ export function taskBlockedEntry(agent: BlockedAgentRef, task: Task, mood: Mood)
     blocked_note: task.blocked_note,
     blocked_reason: task.blocked_reason,
     unblock_needed: task.unblock_needed,
+    waiting_on: task.waiting_on,
   });
   return {
-    ...entryBase(agent, mood, `task-${task.id}`, "Task", details),
+    ...entryBase(agent, mood, `task-${task.id}`, "Task", details, {
+      waitingOn: taskWaiting(task),
+      reportedAt: task.updated_at,
+      sourceUrl: sourceHref(task.source_url),
+    }),
     task: {
       id: task.id,
       note: task.blocked_note ?? "",
@@ -305,6 +424,10 @@ export function agentBlockedEntry(
     working_on?: string | null;
     blocked_reason?: string | null;
     unblock_needed?: string | null;
+    waiting_on?: string | null;
+    source_url?: string | null;
+    reported_at?: string | null;
+    updated_at?: string | null;
   } | null | undefined,
   mood: Mood,
 ): BlockedEntry | null {
@@ -313,25 +436,59 @@ export function agentBlockedEntry(
     working_on: view.working_on,
     blocked_reason: view.blocked_reason,
     unblock_needed: view.unblock_needed,
+    waiting_on: view.waiting_on,
   });
-  return entryBase(agent, mood, `live-${agent.id}`, "Live status", details);
+  const explicit = squash(view.waiting_on);
+  const phrase = waitingPhrase(view.working_on ?? "");
+  const needed = squash(view.unblock_needed);
+  const waitingOn = explicit ? sentence(explicit) : phrase || (needed ? sentence(needed) : "");
+  return entryBase(agent, mood, `live-${agent.id}`, "Live status", details, {
+    waitingOn,
+    reportedAt: view.reported_at ?? view.updated_at ?? null,
+    sourceUrl: sourceHref(view.source_url),
+  });
 }
 
 export function reportBlockedEntry(input: {
   agent: BlockedAgentRef;
   mood: Mood;
   reportDate: string;
-  text: string;
+  item: ReportBlockedItem;
   index: number;
+  postedAt?: string | null;
 }): BlockedEntry {
-  const details = resolveBlockedDetails(input.text);
   const date = input.reportDate.slice(0, 10);
+  const id = `report-${input.agent.id}-${date}-${input.index}`;
+  const kicker = `Report · ${formatIsoMonthDay(date)}`;
+  const reportLink = reportSourcePath(date);
+  if (typeof input.item === "string") {
+    const details = resolveBlockedDetails(input.item);
+    return entryBase(input.agent, input.mood, id, kicker, details, {
+      waitingOn: waitingPhrase(input.item),
+      reportedAt: input.postedAt ?? null,
+      sourceUrl: reportLink,
+    });
+  }
+  const title = squash(input.item.title) || "Blocked item";
+  const reason = squash(input.item.reason);
+  const waiting = squash(input.item.waiting_on);
+  const external = sourceHref(input.item.source_url);
   return entryBase(
     input.agent,
     input.mood,
-    `report-${input.agent.id}-${date}-${input.index}`,
-    `Report · ${formatIsoMonthDay(date)}`,
-    details,
+    id,
+    kicker,
+    {
+      whatBlocked: title,
+      whyBlocked: reason ? sentence(reason) : "",
+      unblockNeeded: waiting ? sentence(waiting) : "",
+    },
+    {
+      waitingOn: waiting ? sentence(waiting) : "",
+      reportedAt: input.postedAt ?? null,
+      sourceUrl: external ?? reportLink,
+      sourceLabel: input.item.source_label,
+    },
   );
 }
 
@@ -344,6 +501,10 @@ export function collectBlockedEntries(input: {
     working_on?: string | null;
     blocked_reason?: string | null;
     unblock_needed?: string | null;
+    waiting_on?: string | null;
+    source_url?: string | null;
+    reported_at?: string | null;
+    updated_at?: string | null;
   }[];
   moods: Map<string, Mood>;
 }): BlockedEntry[] {

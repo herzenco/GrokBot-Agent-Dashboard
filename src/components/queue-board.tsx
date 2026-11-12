@@ -146,13 +146,13 @@ function TaskCard({
         <span className={`pri pri-${task.priority}`}>{task.priority}</span>
         <span className="age">{ageLabel(task.created_at)}</span>
         {task.blocked ? (
-          <button type="button" className="blocked-badge blocked-badge-btn" onClick={() => setDetail(true)}>
+          <button type="button" className="blocked-badge blocked-badge-btn" aria-haspopup="dialog" onClick={() => setDetail(true)}>
             Blocked
           </button>
         ) : null}
       </div>
       {task.blocked ? (
-        <button type="button" className="blocked-note blocked-note-btn" onClick={() => setDetail(true)}>
+        <button type="button" className="blocked-note blocked-note-btn" aria-haspopup="dialog" onClick={() => setDetail(true)}>
           <span>{task.blocked_note || task.blocked_reason || "This task is blocked."}</span>
           <span className="view-block">View block details</span>
         </button>

@@ -39,6 +39,8 @@ describe("status body validation", () => {
       workingOn: "Weekly priorities memo",
       blockedReason: null,
       unblockNeeded: null,
+      waitingOn: null,
+      sourceUrl: null,
     });
   });
 
@@ -49,6 +51,8 @@ describe("status body validation", () => {
       workingOn: "",
       blockedReason: null,
       unblockNeeded: null,
+      waitingOn: null,
+      sourceUrl: null,
     });
     expect(parseStatusBody({ state: "idle", working_on: "   " })).toEqual({
       ok: true,
@@ -56,6 +60,8 @@ describe("status body validation", () => {
       workingOn: "",
       blockedReason: null,
       unblockNeeded: null,
+      waitingOn: null,
+      sourceUrl: null,
     });
     expect(parseStatusBody({ state: "idle", working_on: null })).toEqual({
       ok: true,
@@ -63,6 +69,8 @@ describe("status body validation", () => {
       workingOn: "",
       blockedReason: null,
       unblockNeeded: null,
+      waitingOn: null,
+      sourceUrl: null,
     });
   });
 
@@ -80,15 +88,51 @@ describe("status body validation", () => {
       workingOn: "Waiting on Herzen",
       blockedReason: "Review pending",
       unblockNeeded: "Merge approval",
+      waitingOn: null,
+      sourceUrl: null,
     });
+    expect(
+      parseStatusBody({
+        state: "blocked",
+        working_on: "Audit",
+        waiting_on: " Herzen ",
+        source_url: "https://linear.app/herzen/issue/HQ-12",
+      }),
+    ).toEqual({
+      ok: true,
+      state: "blocked",
+      workingOn: "Audit",
+      blockedReason: null,
+      unblockNeeded: "Herzen",
+      waitingOn: "Herzen",
+      sourceUrl: "https://linear.app/herzen/issue/HQ-12",
+    });
+    expect(
+      parseStatusBody({
+        state: "blocked",
+        working_on: "Audit",
+        waiting_on: "Herzen",
+        unblock_needed: "Merge approval",
+      }),
+    ).toMatchObject({ waitingOn: "Herzen", unblockNeeded: "Merge approval" });
     expect(
       parseStatusBody({
         state: "working",
         working_on: "Writing",
         blocked_reason: "old reason",
         unblock_needed: "old need",
+        waiting_on: "Herzen",
+        source_url: "https://example.com/old",
       }),
-    ).toMatchObject({ blockedReason: null, unblockNeeded: null });
+    ).toMatchObject({ blockedReason: null, unblockNeeded: null, waitingOn: null, sourceUrl: null });
+    expect(parseStatusBody({ state: "blocked", working_on: "Stuck", source_url: "javascript:alert(1)" })).toEqual({
+      ok: false,
+      error: "source_url must be http or https",
+    });
+    expect(parseStatusBody({ state: "blocked", working_on: "Stuck", source_url: "https://example.com/" + "x".repeat(1000) })).toEqual({
+      ok: false,
+      error: "source_url must be 1000 characters or fewer",
+    });
     expect(parseStatusBody({ state: "blocked", working_on: "Stuck", blocked_reason: "x".repeat(1001) })).toEqual({
       ok: false,
       error: "blocked_reason must be 1000 characters or fewer",

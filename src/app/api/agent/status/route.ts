@@ -19,6 +19,8 @@ export async function POST(req: Request) {
     workingOn: parsed.workingOn,
     blockedReason: parsed.blockedReason,
     unblockNeeded: parsed.unblockNeeded,
+    waitingOn: parsed.waitingOn,
+    sourceUrl: parsed.sourceUrl,
   });
   await noteAgentApiCall(agent);
   return Response.json(heartbeat);

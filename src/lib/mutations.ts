@@ -4,10 +4,11 @@ import { getTask, listAgents } from "@/lib/data";
 import { planDocumentMove } from "@/lib/documents";
 import { statusActivitySummary } from "@/lib/live";
 import { outreachActivitySummary, type OutreachPatch, type OutreachRow, type OutreachWrite } from "@/lib/outreach";
-import type { Agent, DocAction, LiveState, Priority, Task, TaskStatus } from "@/lib/types";
+import type { Agent, DocAction, LiveState, Priority, ReportBlockedItem, Task, TaskStatus } from "@/lib/types";
+import { parseHttpUrl } from "@/lib/url";
 
 const TASK_COLUMNS =
-  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,created_at,updated_at,done_at";
+  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,created_at,updated_at,done_at";
 
 export type TaskPatch = {
   title?: string;
@@ -18,6 +19,8 @@ export type TaskPatch = {
   blocked_note?: string | null;
   blocked_reason?: string | null;
   unblock_needed?: string | null;
+  waiting_on?: string | null;
+  source_url?: string | null;
   agent_id?: string;
 };
 
@@ -60,6 +63,8 @@ export async function recordHeartbeat(input: {
   workingOn: string;
   blockedReason?: string | null;
   unblockNeeded?: string | null;
+  waitingOn?: string | null;
+  sourceUrl?: string | null;
 }): Promise<{
   agent: string;
   state: LiveState;
@@ -67,10 +72,14 @@ export async function recordHeartbeat(input: {
   updated_at: string;
   blocked_reason: string | null;
   unblock_needed: string | null;
+  waiting_on: string | null;
+  source_url: string | null;
 }> {
   const blocked = input.state === "blocked";
   const blockedReason = blocked ? input.blockedReason?.trim() || null : null;
-  const unblockNeeded = blocked ? input.unblockNeeded?.trim() || null : null;
+  const waitingOn = blocked ? input.waitingOn?.trim() || null : null;
+  const sourceUrl = blocked ? input.sourceUrl?.trim() || null : null;
+  const unblockNeeded = blocked ? input.unblockNeeded?.trim() || waitingOn : null;
   const { data, error } = await db()
     .from("agent_heartbeats")
     .insert({
@@ -79,6 +88,8 @@ export async function recordHeartbeat(input: {
       working_on: input.workingOn,
       blocked_reason: blockedReason,
       unblock_needed: unblockNeeded,
+      waiting_on: waitingOn,
+      source_url: sourceUrl,
     })
     .select("created_at")
     .single();
@@ -101,6 +112,8 @@ export async function recordHeartbeat(input: {
         updated_at: updatedAt,
         blocked_reason: blockedReason,
         unblock_needed: unblockNeeded,
+        waiting_on: waitingOn,
+        source_url: sourceUrl,
       },
       { onConflict: "agent_id" },
     );
@@ -113,6 +126,8 @@ export async function recordHeartbeat(input: {
     updated_at: updatedAt,
     blocked_reason: blockedReason,
     unblock_needed: unblockNeeded,
+    waiting_on: waitingOn,
+    source_url: sourceUrl,
   };
 }
 
@@ -126,10 +141,14 @@ export async function createTaskForAgent(input: {
   blockedNote?: string | null;
   blockedReason?: string | null;
   unblockNeeded?: string | null;
+  waitingOn?: string | null;
+  sourceUrl?: string | null;
 }): Promise<Task> {
   const blocked = Boolean(input.blocked);
   const blockedReason = blocked ? input.blockedReason?.trim() || null : null;
-  const unblockNeeded = blocked ? input.unblockNeeded?.trim() || null : null;
+  const waitingOn = blocked ? input.waitingOn?.trim() || null : null;
+  const sourceUrl = blocked ? input.sourceUrl?.trim() || null : null;
+  const unblockNeeded = blocked ? input.unblockNeeded?.trim() || waitingOn : null;
   const blockedNote = blocked ? input.blockedNote?.trim() || blockedReason : null;
   const { data, error } = await db()
     .from("tasks")
@@ -143,6 +162,8 @@ export async function createTaskForAgent(input: {
       blocked_note: blockedNote,
       blocked_reason: blockedReason,
       unblock_needed: unblockNeeded,
+      waiting_on: waitingOn,
+      source_url: sourceUrl,
     })
     .select(TASK_COLUMNS)
     .single();
@@ -177,6 +198,8 @@ export async function applyTaskPatch(
   let blockedNote = patch.blocked_note !== undefined ? patch.blocked_note : current.blocked_note;
   let blockedReason = patch.blocked_reason !== undefined ? patch.blocked_reason : (current.blocked_reason ?? null);
   let unblockNeeded = patch.unblock_needed !== undefined ? patch.unblock_needed : (current.unblock_needed ?? null);
+  let waitingOn = patch.waiting_on !== undefined ? patch.waiting_on : (current.waiting_on ?? null);
+  let sourceUrl = patch.source_url !== undefined ? patch.source_url : (current.source_url ?? null);
   const agentId = patch.agent_id ?? current.agent_id;
   let doneAt = current.done_at;
 
@@ -190,16 +213,21 @@ export async function applyTaskPatch(
   blockedNote = blockedNote?.trim() || null;
   blockedReason = blockedReason?.trim() || null;
   unblockNeeded = unblockNeeded?.trim() || null;
+  waitingOn = waitingOn?.trim() || null;
+  sourceUrl = sourceUrl?.trim() || null;
 
   if (!blocked) {
     blockedNote = null;
     blockedReason = null;
     unblockNeeded = null;
+    waitingOn = null;
+    sourceUrl = null;
   } else if (patch.blocked_reason !== undefined && patch.blocked_note === undefined && blockedReason) {
     blockedNote = blockedReason;
   } else if (!blockedNote && blockedReason) {
     blockedNote = blockedReason;
   }
+  if (blocked && !unblockNeeded && waitingOn) unblockNeeded = waitingOn;
 
   if (blocked && !blockedNote) return { error: "A blocked task needs a note" };
 
@@ -210,6 +238,12 @@ export async function applyTaskPatch(
   if (blockedNote && blockedNote.length > 1000) return { error: "Block note must be 1000 characters or fewer" };
   if (blockedReason && blockedReason.length > 1000) return { error: "Block reason must be 1000 characters or fewer" };
   if (unblockNeeded && unblockNeeded.length > 1000) return { error: "Unblock note must be 1000 characters or fewer" };
+  if (waitingOn && waitingOn.length > 1000) return { error: "waiting_on must be 1000 characters or fewer" };
+  if (sourceUrl) {
+    const source = parseHttpUrl(sourceUrl, "source_url");
+    if (!source.ok) return { error: source.error };
+    sourceUrl = source.value;
+  }
 
   const agents = await listAgents();
   const nextAgent = agents.find((agent) => agent.id === agentId);
@@ -224,6 +258,8 @@ export async function applyTaskPatch(
     (blockedNote ?? null) === (current.blocked_note ?? null) &&
     (blockedReason ?? null) === (current.blocked_reason ?? null) &&
     (unblockNeeded ?? null) === (current.unblock_needed ?? null) &&
+    (waitingOn ?? null) === (current.waiting_on ?? null) &&
+    (sourceUrl ?? null) === (current.source_url ?? null) &&
     agentId === current.agent_id &&
     (doneAt ?? null) === (current.done_at ?? null);
 
@@ -240,6 +276,8 @@ export async function applyTaskPatch(
       blocked_note: blockedNote,
       blocked_reason: blockedReason,
       unblock_needed: unblockNeeded,
+      waiting_on: waitingOn,
+      source_url: sourceUrl,
       agent_id: agentId,
       done_at: doneAt,
     })
@@ -261,7 +299,9 @@ export async function applyTaskPatch(
   const blockTextChanged =
     (blockedNote ?? null) !== (current.blocked_note ?? null) ||
     (blockedReason ?? null) !== (current.blocked_reason ?? null) ||
-    (unblockNeeded ?? null) !== (current.unblock_needed ?? null);
+    (unblockNeeded ?? null) !== (current.unblock_needed ?? null) ||
+    (waitingOn ?? null) !== (current.waiting_on ?? null) ||
+    (sourceUrl ?? null) !== (current.source_url ?? null);
   if (
     status !== "done" &&
     blockTextChanged &&
@@ -298,7 +338,7 @@ export async function upsertReport(input: {
   reportDate: string;
   done: string[];
   inProgress: string[];
-  blocked: string[];
+  blocked: ReportBlockedItem[];
 }): Promise<Record<string, unknown>> {
   const { data, error } = await db()
     .from("reports")

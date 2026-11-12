@@ -3,10 +3,11 @@ import { cache } from "react";
 import type { AgentIdentity } from "@/lib/api-key";
 import { db } from "@/lib/db";
 import type { OutreachRow, OutreachStatus } from "@/lib/outreach";
+import { readReportBlocked } from "@/lib/blocked-payload";
 import type { ActivityRow, Agent, AgentStatusRow, DocumentEvent, DocumentRow, Report, Task } from "@/lib/types";
 
 const TASK_COLUMNS =
-  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,created_at,updated_at,done_at";
+  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,created_at,updated_at,done_at";
 
 function unwrap<T>(data: T | null, error: { message: string } | null): T {
   if (error) throw new Error(error.message);
@@ -46,7 +47,7 @@ export async function findAgentByKeyHash(hash: string): Promise<AgentIdentity | 
 export async function listAgentStatus(): Promise<AgentStatusRow[]> {
   const { data, error } = await db()
     .from("agent_status")
-    .select("agent_id,state,working_on,updated_at,blocked_reason,unblock_needed");
+    .select("agent_id,state,working_on,updated_at,blocked_reason,unblock_needed,waiting_on,source_url");
   return unwrap(data, error) as AgentStatusRow[];
 }
 
@@ -69,7 +70,11 @@ export async function getTask(id: string): Promise<Task | null> {
 const REPORT_COLUMNS = "id,agent_id,report_date,done,in_progress,blocked,posted_at";
 
 function asReport(row: Report): Report {
-  return { ...row, report_date: String(row.report_date).slice(0, 10) };
+  return {
+    ...row,
+    report_date: String(row.report_date).slice(0, 10),
+    blocked: readReportBlocked(row.blocked),
+  };
 }
 
 export async function listReports(dateISO: string): Promise<Report[]> {

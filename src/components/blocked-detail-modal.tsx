@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { setTaskBlockedAction } from "@/app/actions";
-import { LiveAvatar } from "@/components/live-status";
-import type { BlockedEntry } from "@/lib/blocked";
+import { Avatar } from "@/components/avatar";
+import { NOT_PROVIDED, blockedDetailFields, type BlockedDetailView, type BlockedEntry } from "@/lib/blocked";
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled])';
 
 export function BlockedDetailModal({
   entries,
@@ -17,35 +20,62 @@ export function BlockedDetailModal({
   onClose: () => void;
 }) {
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const sharedAgent = entries.length > 0 && entries.every((entry) => entry.agentId === entries[0]?.agentId);
   const lead = sharedAgent ? entries[0] : null;
   const title = heading ?? (lead ? `${lead.agentName} is blocked` : "Blocked");
 
   useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (node) => !node.hasAttribute("disabled"),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
-    const previous = document.body.style.overflow;
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.overflow = previous;
+      document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKey);
+      previous?.focus();
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="modal-back" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
         className="modal modal-wide"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="modal-title-row">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" className="btn" onClick={onClose}>
+          <button ref={closeRef} type="button" className="btn" onClick={onClose}>
             Close
           </button>
         </div>
@@ -65,12 +95,13 @@ export function BlockedDetailModal({
 }
 
 function AgentBlockHead({ entry }: { entry: BlockedEntry }) {
+  const agent = blockedDetailFields(entry).agent;
   return (
     <div className="block-person">
-      <LiveAvatar name={entry.agentName} agentId={entry.agentId} fallback={entry.mood} size={44} />
+      <Avatar name={entry.agentName || agent} mood={entry.mood} size={44} />
       <div className="block-person-id">
-        <strong>{entry.agentName}</strong>
-        <p>{entry.agentRole}</p>
+        <strong>{agent}</strong>
+        <p>{entry.agentRole.trim() || NOT_PROVIDED}</p>
       </div>
       <span className="pill pill-blocked">
         <span className="pill-dot" aria-hidden="true" />
@@ -89,24 +120,52 @@ function BlockedEntryView({
   showAgent: boolean;
   onDone: () => void;
 }) {
+  const fields = blockedDetailFields(entry);
   return (
     <article className="block-entry">
       {showAgent ? <AgentBlockHead entry={entry} /> : null}
       <p className="block-kicker">{entry.kicker}</p>
-      <section className="block-section">
-        <h3>What is blocked</h3>
-        <p>{entry.whatBlocked}</p>
-      </section>
-      <section className="block-section block-why">
-        <h3>Why it is blocked</h3>
-        <p>{entry.whyBlocked}</p>
-      </section>
-      <section className="block-section block-need">
-        <h3>What is needed to unblock it</h3>
-        <p>{entry.unblockNeeded}</p>
-      </section>
+      <BlockField title="What is blocked" value={fields.item} />
+      <BlockField title="Why it is blocked" value={fields.reason} tone="why" />
+      <BlockField title="Waiting on" value={fields.waitingOn} tone="need" />
+      <BlockField title="Reported" value={fields.reportedAt} />
+      <SourceField fields={fields} />
+      <BlockField title="What is needed to unblock it" value={fields.unblockNeeded} />
       {entry.task ? <TaskBlockEditor entry={entry} onDone={onDone} /> : null}
     </article>
+  );
+}
+
+function BlockField({ title, value, tone }: { title: string; value: string; tone?: "why" | "need" }) {
+  const missing = value === NOT_PROVIDED;
+  return (
+    <section className={tone ? `block-section block-${tone}` : "block-section"}>
+      <h3>{title}</h3>
+      <p className={missing ? "block-missing" : undefined}>{value}</p>
+    </section>
+  );
+}
+
+function SourceField({ fields }: { fields: BlockedDetailView }) {
+  return (
+    <section className="block-section block-source">
+      <h3>Source</h3>
+      {fields.sourceHref ? (
+        fields.sourceHref.startsWith("/") ? (
+          <p>
+            <Link href={fields.sourceHref}>{fields.sourceLabel}</Link>
+          </p>
+        ) : (
+          <p>
+            <a href={fields.sourceHref} target="_blank" rel="noopener noreferrer">
+              {fields.sourceLabel}
+            </a>
+          </p>
+        )
+      ) : (
+        <p className="block-missing">{NOT_PROVIDED}</p>
+      )}
+    </section>
   );
 }
 
@@ -201,17 +260,29 @@ export function BlockedLaunch({
   className,
   children,
   heading,
+  dataTail,
 }: {
   entries: BlockedEntry[];
   className?: string;
   children: React.ReactNode;
   heading?: string;
+  dataTail?: string;
 }) {
   const [open, setOpen] = useState(false);
   if (entries.length === 0) return null;
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className={className}
+        aria-haspopup="dialog"
+        data-tail={dataTail}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(true);
+        }}
+      >
         {children}
       </button>
       {open ? <BlockedDetailModal entries={entries} heading={heading} onClose={() => setOpen(false)} /> : null}
@@ -224,7 +295,7 @@ export function BlockedStatButton({ count, entries }: { count: number; entries: 
   const heading = entries.length > 0 ? `Blocked · ${entries.length}` : "Blocked";
   return (
     <>
-      <button type="button" className="stat stat-button" onClick={() => setOpen(true)}>
+      <button type="button" className="stat stat-button" aria-haspopup="dialog" onClick={() => setOpen(true)}>
         <span className="stat-label bad">Blocked</span>
         <span className="stat-value bad">{count}</span>
       </button>

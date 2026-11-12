@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActivityPanel } from "@/components/activity-panel";
-import { LiveAvatar, LiveMoodPill } from "@/components/live-status";
+import { ClickableMoodPill } from "@/components/blocked-live";
+import { LiveAvatar } from "@/components/live-status";
 import { QueueBoard } from "@/components/queue-board";
 import { Shell, Split } from "@/components/shell";
 import { tileVar } from "@/lib/avatar-model";
+import { collectBlockedEntries } from "@/lib/blocked";
 import { loadChrome } from "@/lib/chrome";
 import type { Priority, Task, TaskStatus } from "@/lib/types";
 
@@ -31,6 +33,12 @@ export default async function AgentQueuePage({ params }: { params: Promise<{ slu
   if (!agent) notFound();
   const tasks = sortQueue(chrome.tasks.filter((task) => task.agent_id === agent.id));
   const mood = chrome.moods.get(agent.id) ?? "idle";
+  const blocks = collectBlockedEntries({
+    agents: chrome.agents,
+    tasks: chrome.tasks,
+    live: chrome.live,
+    moods: chrome.moods,
+  }).filter((entry) => entry.agentId === agent.id);
   const counts = (status: TaskStatus) => tasks.filter((task) => task.status === status).length;
 
   return (
@@ -48,7 +56,12 @@ export default async function AgentQueuePage({ params }: { params: Promise<{ slu
           <h1 className="greeting queue-title">{agent.name}</h1>
           <p className="subhead">
             {agent.role}
-            <LiveMoodPill agentId={agent.id} fallback={mood} />
+            <ClickableMoodPill
+              agentId={agent.id}
+              fallback={mood}
+              blockedEntries={blocks}
+              heading={`${agent.name} is blocked`}
+            />
           </p>
           <p className="quiet-line">
             {counts("todo")} to do, {counts("doing")} doing, {counts("done")} done. Drag a title into a column, or use the buttons.

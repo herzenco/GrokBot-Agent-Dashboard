@@ -2,18 +2,21 @@
 
 import { BlockedLaunch } from "@/components/blocked-detail-modal";
 import { reportBlockedEntry, type BlockedAgentRef } from "@/lib/blocked";
-import type { Mood } from "@/lib/types";
+import { reportBlockedLabel } from "@/lib/blocked-payload";
+import type { Mood, ReportBlockedItem } from "@/lib/types";
 
 export function ReportBlockedColumn({
   items,
   agent,
   mood,
   reportDate,
+  postedAt,
 }: {
-  items: string[];
+  items: ReportBlockedItem[];
   agent: BlockedAgentRef;
   mood: Mood;
   reportDate: string;
+  postedAt?: string | null;
 }) {
   return (
     <section className="report-col warn">
@@ -25,11 +28,12 @@ export function ReportBlockedColumn({
       ) : (
         <ul>
           {items.map((item, index) => {
-            const entry = reportBlockedEntry({ agent, mood, reportDate, text: item, index });
+            const entry = reportBlockedEntry({ agent, mood, reportDate, item, index, postedAt });
+            const label = reportBlockedLabel(item);
             return (
-              <li key={`${item}-${index}`}>
+              <li key={`${entry.id}-${label}`}>
                 <BlockedLaunch className="report-block-btn" entries={[entry]} heading={`${agent.name} is blocked`}>
-                  {item}
+                  {label}
                 </BlockedLaunch>
               </li>
             );

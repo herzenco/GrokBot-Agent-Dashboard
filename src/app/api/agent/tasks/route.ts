@@ -1,5 +1,6 @@
 import { noteAgentApiCall } from "@/lib/agent-activity";
 import { authenticate, asPriority, asText, agentForWrite, isResponse, jsonError, readJson } from "@/lib/agent-route";
+import { parseHttpUrl } from "@/lib/url";
 import { listAgents, listTasks, listTasksForAgent } from "@/lib/data";
 import { createTaskForAgent } from "@/lib/mutations";
 import type { Task } from "@/lib/types";
@@ -70,6 +71,18 @@ export async function POST(req: Request) {
     if (isResponse(needed)) return needed;
     unblockNeeded = needed;
   }
+  let waitingOn: string | null = null;
+  if ("waiting_on" in body) {
+    const waiting = asText(body.waiting_on, "waiting_on", 1000, false);
+    if (isResponse(waiting)) return waiting;
+    waitingOn = waiting;
+  }
+  let sourceUrl: string | null = null;
+  if ("source_url" in body) {
+    const source = parseHttpUrl(body.source_url, "source_url");
+    if (!source.ok) return jsonError(source.error, 400);
+    sourceUrl = source.value;
+  }
   const blocked = blockedFlag === true || (blockedFlag !== false && Boolean(blockedReason || blockedNote));
   if (blocked && !blockedNote && blockedReason) blockedNote = blockedReason;
   if (blocked && !blockedNote) return jsonError("A blocked task needs a note", 400);
@@ -84,6 +97,8 @@ export async function POST(req: Request) {
     blockedNote: blocked ? blockedNote : null,
     blockedReason: blocked ? blockedReason : null,
     unblockNeeded: blocked ? unblockNeeded : null,
+    waitingOn: blocked ? waitingOn : null,
+    sourceUrl: blocked ? sourceUrl : null,
   });
   await noteAgentApiCall(agent);
   return Response.json({ ...task, agent: agent.slug }, { status: 201 });

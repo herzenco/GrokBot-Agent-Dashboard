@@ -297,6 +297,12 @@ html.dark .theme-toggle .icon-sun { display: block; }
 }
 .pill-dot { width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--muted); background: transparent; }
 .pill-active .pill-dot { background: var(--green); border-color: var(--green); }
+button.pill {
+  border: 0;
+  background: var(--surface);
+  font: inherit;
+  cursor: pointer;
+}
 .pill-blocked { color: var(--orange); }
 .pill-blocked .pill-dot { background: var(--orange); border-color: var(--orange); }
 .pill-idle { color: var(--muted); }
@@ -344,9 +350,19 @@ html.dark .theme-toggle .icon-sun { display: block; }
 .bubble-stuck[data-tail="yes"]::before { background: var(--orange-soft); }
 .bubble-nap { background: var(--idle-soft); }
 .bubble-nap[data-tail="yes"]::before { background: var(--idle-soft); }
-.bubble-label { position: relative; font-size: 12px; font-weight: 600; color: var(--muted); }
+button.bubble {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bubble-label, .bubble-line { position: relative; display: block; }
+.bubble-label { font-size: 12px; font-weight: 600; color: var(--muted); }
 .bubble-stuck .bubble-label { color: var(--orange); }
-.bubble-line { position: relative; }
+.block-source a { font-weight: 650; text-underline-offset: 2px; }
+.block-missing { color: var(--muted); }
 .done-block { display: flex; flex-direction: column; gap: 6px; }
 .done-label {
   display: flex;
@@ -385,6 +401,8 @@ html.dark .theme-toggle .icon-sun { display: block; }
 }
 .card-foot .missing { color: var(--orange); font-weight: 500; }
 .card-foot .report-latest { color: var(--ink); font-weight: 600; }
+.card-identity,
+.card-rest,
 .card-fill {
   display: flex;
   flex-direction: column;
@@ -393,7 +411,20 @@ html.dark .theme-toggle .icon-sun { display: block; }
   color: inherit;
   text-decoration: none;
 }
-.card-block-bar { padding: 0 18px 14px; }
+.card-identity {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.card-rest { gap: 16px; }
+.card-block-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 18px 14px;
+}
 .blocked-launch {
   display: inline-flex;
   align-items: center;
@@ -406,6 +437,9 @@ html.dark .theme-toggle .icon-sun { display: block; }
   min-height: 32px;
   padding: 4px 12px;
   font-size: 13px;
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
 }
 .blocked-launch:hover { filter: brightness(0.97); }
 .stat-button {
