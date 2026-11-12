@@ -8,22 +8,22 @@ import { Shell, Split } from "@/components/shell";
 import { tileVar } from "@/lib/avatar-model";
 import { collectBlockedEntries } from "@/lib/blocked";
 import { loadChrome } from "@/lib/chrome";
-import type { Priority, Task, TaskStatus } from "@/lib/types";
+import type { Task } from "@/lib/types";
+import { WORK_COLUMNS, columnStatus, priorityRank, type CanonicalStatus } from "@/lib/work";
 
 export const dynamic = "force-dynamic";
 
 function sortQueue(tasks: Task[]): Task[] {
-  const rank: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
-  const column = (status: TaskStatus) =>
+  const column = (status: CanonicalStatus) =>
     tasks
-      .filter((task) => task.status === status)
+      .filter((task) => columnStatus(task.status) === status)
       .sort((a, b) => {
         if (status === "done") return (b.done_at ?? "").localeCompare(a.done_at ?? "");
-        const priority = rank[a.priority] - rank[b.priority];
+        const priority = priorityRank(a.priority) - priorityRank(b.priority);
         if (priority !== 0) return priority;
         return a.created_at.localeCompare(b.created_at);
       });
-  return [...column("todo"), ...column("doing"), ...column("done")];
+  return WORK_COLUMNS.flatMap((item) => column(item.status));
 }
 
 export default async function AgentQueuePage({ params }: { params: Promise<{ slug: string }> }) {
@@ -39,7 +39,7 @@ export default async function AgentQueuePage({ params }: { params: Promise<{ slu
     live: chrome.live,
     moods: chrome.moods,
   }).filter((entry) => entry.agentId === agent.id);
-  const counts = (status: TaskStatus) => tasks.filter((task) => task.status === status).length;
+  const counts = (status: CanonicalStatus) => tasks.filter((task) => columnStatus(task.status) === status).length;
 
   return (
     <Shell active="board" agents={chrome.agents} live={chrome.live} activity={chrome.activity}>
@@ -64,7 +64,8 @@ export default async function AgentQueuePage({ params }: { params: Promise<{ slu
             />
           </p>
           <p className="quiet-line">
-            {counts("todo")} to do, {counts("doing")} doing, {counts("done")} done. Drag a title into a column, or use the buttons.
+            {counts("backlog")} backlog, {counts("todo")} to do, {counts("in_progress")} in progress, {counts("in_review")} in review, {counts("done")} done, {counts("canceled")} canceled. Drag a title into a column, or use the buttons.{" "}
+            <Link href={`/work?agent=${agent.slug}`}>Open in Work</Link>
           </p>
         </div>
       </div>

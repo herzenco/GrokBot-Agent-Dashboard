@@ -1,35 +1,38 @@
 import { noteAgentApiCall } from "@/lib/agent-activity";
-import { authenticate, asPriority, asText, agentForWrite, isResponse, jsonError, readJson } from "@/lib/agent-route";
-import { parseHttpUrl } from "@/lib/url";
+import { agentForWrite, authenticate, isResponse, jsonError, readJson } from "@/lib/agent-route";
 import { listAgents, listTasks, listTasksForAgent } from "@/lib/data";
 import { createTaskForAgent } from "@/lib/mutations";
-import type { Task } from "@/lib/types";
-
-function present(task: Task, slugById: Map<string, string>) {
-  return { ...task, agent: slugById.get(task.agent_id) ?? null };
-}
+import { mergeExternalRefs, parseTaskCreate, parseTaskQuery, taskMatchesQuery } from "@/lib/work";
+import { presentStoredTask, presentStoredTasks, resolveTaskRelations } from "@/lib/work-db";
 
 export async function GET(req: Request) {
   const actor = await authenticate(req);
   if (isResponse(actor)) return actor;
-  const requested = new URL(req.url).searchParams.get("agent");
+  const url = new URL(req.url);
+  const requested = url.searchParams.get("agent");
+  const parsed = parseTaskQuery(url.searchParams);
+  if (!parsed.ok) return jsonError(parsed.error, 400);
   const agents = await listAgents();
-  const slugById = new Map(agents.map((agent) => [agent.id, agent.slug]));
 
+  let tasks;
   if (actor.admin) {
     if (requested) {
       const agent = agents.find((item) => item.slug === requested);
       if (!agent) return jsonError("Unknown agent", 404);
-      const tasks = await listTasksForAgent(agent.id);
-      return Response.json({ agent: agent.slug, tasks: tasks.map((task) => present(task, slugById)) });
+      tasks = await listTasksForAgent(agent.id);
+    } else {
+      tasks = await listTasks();
     }
-    const tasks = await listTasks();
-    return Response.json({ tasks: tasks.map((task) => present(task, slugById)) });
+  } else {
+    if (requested && requested !== actor.agent.slug) return jsonError("This key cannot read another agent's tasks", 403);
+    tasks = await listTasksForAgent(actor.agent.id);
   }
 
-  if (requested && requested !== actor.agent.slug) return jsonError("This key cannot read another agent's tasks", 403);
-  const tasks = await listTasksForAgent(actor.agent.id);
-  return Response.json({ agent: actor.agent.slug, tasks: tasks.map((task) => present(task, slugById)) });
+  const presented = await presentStoredTasks(tasks);
+  const filtered = presented.filter((task) => taskMatchesQuery(task, parsed.query));
+  if (!actor.admin) return Response.json({ agent: actor.agent.slug, tasks: filtered });
+  if (requested) return Response.json({ agent: requested, tasks: filtered });
+  return Response.json({ tasks: filtered });
 }
 
 export async function POST(req: Request) {
@@ -39,67 +42,40 @@ export async function POST(req: Request) {
   if (isResponse(body)) return body;
   const agent = await agentForWrite(actor, body.agent);
   if (isResponse(agent)) return agent;
-  const title = asText(body.title, "title", 200, true);
-  if (isResponse(title) || !title) return isResponse(title) ? title : jsonError("Title is required", 400);
-  const details = asText(body.details, "details", 5000, false);
-  if (isResponse(details)) return details;
-  const priority = asPriority(body.priority);
-  if (isResponse(priority)) return priority;
-  const status = body.status;
-  if (status !== undefined && status !== "todo") return jsonError("New tasks start as todo", 400);
-
-  let blockedFlag: boolean | undefined;
-  if ("blocked" in body) {
-    if (typeof body.blocked !== "boolean") return jsonError("blocked must be true or false", 400);
-    blockedFlag = body.blocked;
-  }
-  let blockedNote: string | null = null;
-  if ("blocked_note" in body) {
-    const note = asText(body.blocked_note, "blocked_note", 1000, false);
-    if (isResponse(note)) return note;
-    blockedNote = note;
-  }
-  let blockedReason: string | null = null;
-  if ("blocked_reason" in body) {
-    const reason = asText(body.blocked_reason, "blocked_reason", 1000, false);
-    if (isResponse(reason)) return reason;
-    blockedReason = reason;
-  }
-  let unblockNeeded: string | null = null;
-  if ("unblock_needed" in body) {
-    const needed = asText(body.unblock_needed, "unblock_needed", 1000, false);
-    if (isResponse(needed)) return needed;
-    unblockNeeded = needed;
-  }
-  let waitingOn: string | null = null;
-  if ("waiting_on" in body) {
-    const waiting = asText(body.waiting_on, "waiting_on", 1000, false);
-    if (isResponse(waiting)) return waiting;
-    waitingOn = waiting;
-  }
-  let sourceUrl: string | null = null;
-  if ("source_url" in body) {
-    const source = parseHttpUrl(body.source_url, "source_url");
-    if (!source.ok) return jsonError(source.error, 400);
-    sourceUrl = source.value;
-  }
-  const blocked = blockedFlag === true || (blockedFlag !== false && Boolean(blockedReason || blockedNote));
-  if (blocked && !blockedNote && blockedReason) blockedNote = blockedReason;
-  if (blocked && !blockedNote) return jsonError("A blocked task needs a note", 400);
-
+  const parsed = parseTaskCreate(body);
+  if (!parsed.ok) return jsonError(parsed.error, 400);
+  const agents = await listAgents();
+  const relations = await resolveTaskRelations(
+    { project: parsed.value.project, assignee: parsed.value.assignee, parent: parsed.value.parent },
+    agents,
+  );
+  if ("error" in relations) return jsonError(relations.error, 400);
+  const refs = parsed.value.external_refs ? mergeExternalRefs({}, parsed.value.external_refs) : { ok: true as const, refs: {} };
+  if (!refs.ok) return jsonError(refs.error, 400);
+  const value = parsed.value;
   const task = await createTaskForAgent({
     agent,
-    title,
-    details,
-    priority,
+    title: value.title ?? "",
+    details: value.details ?? null,
+    priority: value.priority ?? "medium",
+    status: value.status ?? "todo",
     actor: agent.slug,
-    blocked,
-    blockedNote: blocked ? blockedNote : null,
-    blockedReason: blocked ? blockedReason : null,
-    unblockNeeded: blocked ? unblockNeeded : null,
-    waitingOn: blocked ? waitingOn : null,
-    sourceUrl: blocked ? sourceUrl : null,
+    blocked: value.blocked,
+    blockedNote: value.blocked_note,
+    blockedReason: value.blocked_reason,
+    unblockNeeded: value.unblock_needed,
+    waitingOn: value.waiting_on,
+    sourceUrl: value.source_url,
+    projectId: relations.project_id,
+    assigneeAgentId: relations.assignee_agent_id,
+    assigneeHerzen: relations.assignee_herzen,
+    dueOn: value.due_on,
+    parentId: relations.parent_id,
+    externalRefs: refs.refs,
+    labels: value.labels,
+    links: value.links,
   });
   await noteAgentApiCall(agent);
-  return Response.json({ ...task, agent: agent.slug }, { status: 201 });
+  const presented = await presentStoredTask(task);
+  return Response.json(presented, { status: 201 });
 }

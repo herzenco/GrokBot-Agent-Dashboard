@@ -8,12 +8,9 @@ import type { ShellAgent } from "@/components/shell";
 import { taskBlockedEntry, type BlockedAgentRef } from "@/lib/blocked";
 import { ageLabel } from "@/lib/time";
 import type { Mood, Priority, Task, TaskStatus } from "@/lib/types";
+import { PRIORITY_OPTIONS, WORK_COLUMNS, canonicalPriority, columnStatus } from "@/lib/work";
 
-const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: "todo", label: "To do" },
-  { status: "doing", label: "Doing" },
-  { status: "done", label: "Done" },
-];
+const COLUMNS = WORK_COLUMNS;
 
 export function QueueBoard({
   tasks,
@@ -46,9 +43,9 @@ export function QueueBoard({
   return (
     <div className="queue-wrap">
       {error ? <p className="form-error">{error}</p> : null}
-      <div className="queue">
+      <div className="queue queue-wide">
         {COLUMNS.map((column) => {
-          const items = tasks.filter((task) => task.status === column.status);
+          const items = tasks.filter((task) => columnStatus(task.status) === column.status);
           return (
             <section
               key={column.status}
@@ -143,7 +140,7 @@ function TaskCard({
       </h3>
       {task.details ? <p className="task-details">{task.details}</p> : null}
       <div className="task-meta">
-        <span className={`pri pri-${task.priority}`}>{task.priority}</span>
+        <span className={`pri pri-${canonicalPriority(task.priority)}`}>{canonicalPriority(task.priority)}</span>
         <span className="age">{ageLabel(task.created_at)}</span>
         {task.blocked ? (
           <button type="button" className="blocked-badge blocked-badge-btn" aria-haspopup="dialog" onClick={() => setDetail(true)}>
@@ -162,8 +159,8 @@ function TaskCard({
           <button
             key={column.status}
             type="button"
-            aria-pressed={task.status === column.status}
-            disabled={pending || task.status === column.status}
+            aria-pressed={columnStatus(task.status) === column.status}
+            disabled={pending || columnStatus(task.status) === column.status}
             onClick={() => onStatus(column.status)}
           >
             {column.label}
@@ -174,13 +171,15 @@ function TaskCard({
         <label>
           Priority
           <select
-            value={task.priority}
+            value={canonicalPriority(task.priority)}
             disabled={pending}
             onChange={(event) => onPriority(event.target.value as Priority)}
           >
-            <option value="low">Low</option>
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
+            {PRIORITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </label>
         <label>

@@ -4,40 +4,21 @@ import { getTask, listAgents } from "@/lib/data";
 import { planDocumentMove } from "@/lib/documents";
 import { statusActivitySummary } from "@/lib/live";
 import { outreachActivitySummary, type OutreachPatch, type OutreachRow, type OutreachWrite } from "@/lib/outreach";
-import type { Agent, DocAction, LiveState, Priority, ReportBlockedItem, Task, TaskStatus } from "@/lib/types";
-import { parseHttpUrl } from "@/lib/url";
+import type { Agent, DocAction, ExternalRefs, LinkKind, LiveState, Priority, ReportBlockedItem, Task } from "@/lib/types";
+import {
+  parentCreatesCycle,
+  planTaskUpdate,
+  TASK_COLUMNS,
+  type CanonicalPriority,
+  type CanonicalStatus,
+  type TaskPatch,
+} from "@/lib/work";
+import { ensureTaskLink, insertBlockEvent, listParentMap, setTaskLabels } from "@/lib/work-db";
 
-const TASK_COLUMNS =
-  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,created_at,updated_at,done_at";
-
-export type TaskPatch = {
-  title?: string;
-  details?: string | null;
-  priority?: Priority;
-  status?: TaskStatus;
-  blocked?: boolean;
-  blocked_note?: string | null;
-  blocked_reason?: string | null;
-  unblock_needed?: string | null;
-  waiting_on?: string | null;
-  source_url?: string | null;
-  agent_id?: string;
-};
+export type { TaskPatch };
 
 function quote(title: string): string {
   return `“${title}”`;
-}
-
-function statusLabel(status: TaskStatus): string {
-  if (status === "todo") return "To do";
-  if (status === "doing") return "Doing";
-  return "Done";
-}
-
-function priorityLabel(priority: Priority): string {
-  if (priority === "high") return "High";
-  if (priority === "low") return "Low";
-  return "Normal";
 }
 
 async function writeActivity(row: {
@@ -135,14 +116,23 @@ export async function createTaskForAgent(input: {
   agent: Agent;
   title: string;
   details: string | null;
-  priority: Priority;
+  priority: Priority | CanonicalPriority;
   actor: string;
+  status?: CanonicalStatus;
   blocked?: boolean;
   blockedNote?: string | null;
   blockedReason?: string | null;
   unblockNeeded?: string | null;
   waitingOn?: string | null;
   sourceUrl?: string | null;
+  projectId?: string | null;
+  assigneeAgentId?: string | null;
+  assigneeHerzen?: boolean;
+  dueOn?: string | null;
+  parentId?: string | null;
+  externalRefs?: ExternalRefs;
+  labels?: string[];
+  links?: { kind?: LinkKind; url: string; label?: string | null }[];
 }): Promise<Task> {
   const blocked = Boolean(input.blocked);
   const blockedReason = blocked ? input.blockedReason?.trim() || null : null;
@@ -150,35 +140,69 @@ export async function createTaskForAgent(input: {
   const sourceUrl = blocked ? input.sourceUrl?.trim() || null : null;
   const unblockNeeded = blocked ? input.unblockNeeded?.trim() || waitingOn : null;
   const blockedNote = blocked ? input.blockedNote?.trim() || blockedReason : null;
+  const status = input.status ?? "todo";
   const { data, error } = await db()
     .from("tasks")
     .insert({
       title: input.title,
       details: input.details,
       agent_id: input.agent.id,
-      priority: input.priority,
-      status: "todo",
+      priority: input.priority === "normal" ? "medium" : input.priority,
+      status,
       blocked,
       blocked_note: blockedNote,
       blocked_reason: blockedReason,
       unblock_needed: unblockNeeded,
       waiting_on: waitingOn,
       source_url: sourceUrl,
+      project_id: input.projectId ?? null,
+      assignee_agent_id: input.assigneeHerzen ? null : (input.assigneeAgentId ?? null),
+      assignee_herzen: Boolean(input.assigneeHerzen),
+      due_on: input.dueOn ?? null,
+      parent_id: input.parentId ?? null,
+      external_refs: input.externalRefs ?? {},
+      done_at: status === "done" ? new Date().toISOString() : null,
     })
     .select(TASK_COLUMNS)
     .single();
   if (error) throw new Error(error.message);
   const task = data as Task;
-  const summary =
-    input.actor === "tito"
-      ? `added ${quote(task.title)} for ${input.agent.name}`
-      : `added ${quote(task.title)}`;
+  const actorName = input.actor === "tito" || input.actor === "herzen";
+  const summary = actorName ? `added ${quote(task.title)} for ${input.agent.name}` : `added ${quote(task.title)}`;
   await writeActivity({
     actor: input.actor,
     verb: "created",
     task_id: task.id,
     summary,
   });
+  if (blocked) {
+    await insertBlockEvent({
+      taskId: task.id,
+      actor: input.actor,
+      action: "blocked",
+      snapshot: {
+        blocked_note: blockedNote,
+        blocked_reason: blockedReason,
+        unblock_needed: unblockNeeded,
+        waiting_on: waitingOn,
+        source_url: sourceUrl,
+      },
+    });
+  }
+  if (input.labels?.length) await setTaskLabels(task.id, input.labels);
+  const links = [...(input.links ?? [])];
+  if (input.sourceUrl && !links.some((link) => link.url === input.sourceUrl)) {
+    links.push({ url: input.sourceUrl, label: null });
+  }
+  for (const link of links) {
+    await ensureTaskLink({
+      taskId: task.id,
+      url: link.url,
+      kind: link.kind,
+      label: link.label,
+      createdBy: input.actor,
+    });
+  }
   return task;
 }
 
@@ -190,144 +214,78 @@ export async function applyTaskPatch(
   const current = await getTask(taskId);
   if (!current) return { error: "Task not found" };
 
-  let title = patch.title ?? current.title;
-  const details = patch.details !== undefined ? patch.details : current.details;
-  const priority = patch.priority ?? current.priority;
-  const status = patch.status ?? current.status;
-  let blocked = patch.blocked ?? current.blocked;
-  let blockedNote = patch.blocked_note !== undefined ? patch.blocked_note : current.blocked_note;
-  let blockedReason = patch.blocked_reason !== undefined ? patch.blocked_reason : (current.blocked_reason ?? null);
-  let unblockNeeded = patch.unblock_needed !== undefined ? patch.unblock_needed : (current.unblock_needed ?? null);
-  let waitingOn = patch.waiting_on !== undefined ? patch.waiting_on : (current.waiting_on ?? null);
-  let sourceUrl = patch.source_url !== undefined ? patch.source_url : (current.source_url ?? null);
-  const agentId = patch.agent_id ?? current.agent_id;
-  let doneAt = current.done_at;
-
-  if (status === "done") {
-    blocked = false;
-    if (current.status !== "done" || !doneAt) doneAt = new Date().toISOString();
-  } else if (current.status === "done") {
-    doneAt = null;
-  }
-
-  blockedNote = blockedNote?.trim() || null;
-  blockedReason = blockedReason?.trim() || null;
-  unblockNeeded = unblockNeeded?.trim() || null;
-  waitingOn = waitingOn?.trim() || null;
-  sourceUrl = sourceUrl?.trim() || null;
-
-  if (!blocked) {
-    blockedNote = null;
-    blockedReason = null;
-    unblockNeeded = null;
-    waitingOn = null;
-    sourceUrl = null;
-  } else if (patch.blocked_reason !== undefined && patch.blocked_note === undefined && blockedReason) {
-    blockedNote = blockedReason;
-  } else if (!blockedNote && blockedReason) {
-    blockedNote = blockedReason;
-  }
-  if (blocked && !unblockNeeded && waitingOn) unblockNeeded = waitingOn;
-
-  if (blocked && !blockedNote) return { error: "A blocked task needs a note" };
-
-  title = title.trim();
-  if (!title) return { error: "Title is required" };
-  if (title.length > 200) return { error: "Title must be 200 characters or fewer" };
-  if (details && details.length > 5000) return { error: "Details must be 5000 characters or fewer" };
-  if (blockedNote && blockedNote.length > 1000) return { error: "Block note must be 1000 characters or fewer" };
-  if (blockedReason && blockedReason.length > 1000) return { error: "Block reason must be 1000 characters or fewer" };
-  if (unblockNeeded && unblockNeeded.length > 1000) return { error: "Unblock note must be 1000 characters or fewer" };
-  if (waitingOn && waitingOn.length > 1000) return { error: "waiting_on must be 1000 characters or fewer" };
-  if (sourceUrl) {
-    const source = parseHttpUrl(sourceUrl, "source_url");
-    if (!source.ok) return { error: source.error };
-    sourceUrl = source.value;
-  }
-
   const agents = await listAgents();
+  const agentId = patch.agent_id ?? current.agent_id;
   const nextAgent = agents.find((agent) => agent.id === agentId);
   if (!nextAgent) return { error: "Unknown agent" };
+  const parentMap = patch.parent_id ? await listParentMap() : null;
+  const assignee = patch.assignee_herzen
+    ? "Herzen"
+    : agents.find((agent) => agent.id === patch.assignee_agent_id)?.name ?? null;
+  const previousAssignee = current.assignee_herzen
+    ? "Herzen"
+    : agents.find((agent) => agent.id === current.assignee_agent_id)?.name ?? null;
+  const planned = planTaskUpdate(current, patch, {
+    now: new Date().toISOString(),
+    nextAgentName: nextAgent.name,
+    nextAssigneeLabel: assignee,
+    previousAssigneeLabel: previousAssignee,
+    parentCycles: parentMap ? parentCreatesCycle(taskId, patch.parent_id ?? null, parentMap) : false,
+  });
+  if ("error" in planned) return planned;
+  if (planned.promoteLink) {
+    await ensureTaskLink({
+      taskId,
+      url: planned.promoteLink.url,
+      kind: planned.promoteLink.kind,
+      label: planned.promoteLink.label,
+      createdBy: actor,
+    });
+  }
+  if (planned.unchanged) return { task: current };
+  if (planned.blockEvent) {
+    await insertBlockEvent({
+      taskId,
+      actor,
+      action: planned.blockEvent.action,
+      snapshot: planned.blockEvent.snapshot,
+    });
+  }
 
-  const same =
-    title === current.title &&
-    (details ?? null) === (current.details ?? null) &&
-    priority === current.priority &&
-    status === current.status &&
-    blocked === current.blocked &&
-    (blockedNote ?? null) === (current.blocked_note ?? null) &&
-    (blockedReason ?? null) === (current.blocked_reason ?? null) &&
-    (unblockNeeded ?? null) === (current.unblock_needed ?? null) &&
-    (waitingOn ?? null) === (current.waiting_on ?? null) &&
-    (sourceUrl ?? null) === (current.source_url ?? null) &&
-    agentId === current.agent_id &&
-    (doneAt ?? null) === (current.done_at ?? null);
-
-  if (same) return { task: current };
-
+  const row = planned.row;
   const { data, error } = await db()
     .from("tasks")
     .update({
-      title,
-      details,
-      priority,
-      status,
-      blocked,
-      blocked_note: blockedNote,
-      blocked_reason: blockedReason,
-      unblock_needed: unblockNeeded,
-      waiting_on: waitingOn,
-      source_url: sourceUrl,
-      agent_id: agentId,
-      done_at: doneAt,
+      title: row.title,
+      details: row.details,
+      priority: row.priority,
+      status: row.status,
+      blocked: row.blocked,
+      blocked_note: row.blocked_note,
+      blocked_reason: row.blocked_reason,
+      unblock_needed: row.unblock_needed,
+      waiting_on: row.waiting_on,
+      source_url: row.source_url,
+      agent_id: row.agent_id,
+      project_id: row.project_id,
+      assignee_agent_id: row.assignee_agent_id,
+      assignee_herzen: row.assignee_herzen,
+      due_on: row.due_on,
+      parent_id: row.parent_id,
+      external_refs: row.external_refs,
+      done_at: row.done_at,
     })
     .eq("id", taskId)
     .select(TASK_COLUMNS)
     .single();
   if (error) throw new Error(error.message);
   const task = data as Task;
-
-  const parts: { verb: string; text: string }[] = [];
-  if (status !== current.status) {
-    parts.push({ verb: "moved", text: `moved ${quote(title)} to ${statusLabel(status)}` });
-  }
-  if (blocked && !current.blocked) {
-    parts.push({ verb: "blocked", text: `marked ${quote(title)} blocked` });
-  } else if (!blocked && current.blocked && status !== "done") {
-    parts.push({ verb: "unblocked", text: `cleared the block on ${quote(title)}` });
-  }
-  const blockTextChanged =
-    (blockedNote ?? null) !== (current.blocked_note ?? null) ||
-    (blockedReason ?? null) !== (current.blocked_reason ?? null) ||
-    (unblockNeeded ?? null) !== (current.unblock_needed ?? null) ||
-    (waitingOn ?? null) !== (current.waiting_on ?? null) ||
-    (sourceUrl ?? null) !== (current.source_url ?? null);
-  if (
-    status !== "done" &&
-    blockTextChanged &&
-    !parts.some((part) => part.verb === "blocked" || part.verb === "unblocked")
-  ) {
-    parts.push({ verb: "updated", text: `updated the block on ${quote(title)}` });
-  }
-  if (priority !== current.priority) {
-    const text =
-      priority === "high"
-        ? `raised ${quote(title)} to High`
-        : `set ${quote(title)} to ${priorityLabel(priority)}`;
-    parts.push({ verb: "priority", text });
-  }
-  if (agentId !== current.agent_id) {
-    parts.push({ verb: "reassigned", text: `reassigned ${quote(title)} to ${nextAgent.name}` });
-  }
-  if (!parts.length && (title !== current.title || (details ?? null) !== (current.details ?? null))) {
-    parts.push({ verb: "updated", text: `updated ${quote(title)}` });
-  }
-  if (parts.length) {
+  if (planned.activity) {
     await writeActivity({
       actor,
-      verb: parts.length === 1 ? parts[0].verb : "updated",
+      verb: planned.activity.verb,
       task_id: task.id,
-      summary: parts.map((part) => part.text).join("; "),
+      summary: planned.activity.summary,
     });
   }
   return { task };

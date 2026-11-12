@@ -11,6 +11,8 @@ const IDS: Record<string, string> = {
   "R5-D4": "r5",
   Hondo: "hondo",
   Frick: "frick",
+  C3PO: "c3po",
+  "C-3PO": "c3po",
 };
 
 const BODY: Record<string, { body: string; dark: string }> = {
@@ -59,6 +61,7 @@ export function avatarId(name: string): string | null {
   if (IDS[name]) return IDS[name];
   const folded = name.trim().toLowerCase();
   if (folded === "hondo" || folded === "frick") return folded;
+  if (folded.replace(/[^a-z0-9]/g, "") === "c3po") return "c3po";
   return null;
 }
 
@@ -69,8 +72,9 @@ export function tileVar(name: string): string {
 
 export function avatarPalette(name: string, mood: AvatarMood) {
   const id = avatarId(name);
-  const known = id !== null;
-  const resolved = id ?? "chopper";
+  // A named tile without a drawn portrait (C3PO) stays on the letter fallback.
+  const known = id !== null && Boolean(BODY[id] && FACE[id]);
+  const resolved = known && id ? id : "chopper";
   const c0 = BODY[resolved];
   const f0 = FACE[resolved];
   const er = f0.er;
@@ -86,7 +90,7 @@ export function avatarPalette(name: string, mood: AvatarMood) {
   return {
     known,
     label: `${name}, ${moodWord}`,
-    c: { body: c0.body, dark: c0.dark, tile: `var(--tile-${resolved})` },
+    c: { body: c0.body, dark: c0.dark, tile: id ? `var(--tile-${id})` : "var(--soft)" },
     prop: resolved === "hondo" ? "patch" : resolved === "frick" ? "glass" : "none",
     f: {
       ex1: f0.ex1,

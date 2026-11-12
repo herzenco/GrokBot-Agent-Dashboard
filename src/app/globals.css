@@ -26,6 +26,7 @@
   --tile-r5: #eceef0;
   --tile-hondo: #f8e6c4;
   --tile-frick: #e7f0ff;
+  --tile-c3po: #f6e3a1;
   color-scheme: light;
 }
 
@@ -57,6 +58,7 @@ html.dark {
   --tile-r5: #24272b;
   --tile-hondo: #3a2814;
   --tile-frick: #16233a;
+  --tile-c3po: #3a3014;
   color-scheme: dark;
 }
 
@@ -587,7 +589,7 @@ button.bubble {
   background: var(--soft);
   color: var(--muted);
 }
-.pri-high, .blocked-badge { background: var(--orange-soft); color: var(--orange); }
+.pri-high, .pri-urgent, .blocked-badge { background: var(--orange-soft); color: var(--orange); }
 button.blocked-badge { font: inherit; cursor: pointer; }
 button.blocked-note {
   width: 100%;
@@ -894,9 +896,19 @@ button.blocked-note {
 }
 .login-card .btn-primary { margin-top: 8px; }
 
+.queue-wide { grid-template-columns: repeat(6, minmax(220px, 1fr)); overflow-x: auto; }
+.work-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 12px 0; }
+.work-id { margin: 0; font-family: var(--font-mono), monospace; font-size: 12px; color: var(--muted); }
+.work-table-wrap { overflow-x: auto; }
+.work-table { width: 100%; border-collapse: collapse; background: var(--surface); }
+.work-table th, .work-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.task-detail { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.8fr); gap: 16px; align-items: start; }
+.detail-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+.detail-card h2 { margin: 0 0 8px; font-family: var(--font-display), sans-serif; font-size: 22px; }
+
 @media (max-width: 900px) {
   .report-tools, .date-pills { align-items: stretch; justify-content: flex-start; }
-  .queue, .report-cols { grid-template-columns: 1fr; }
+  .queue, .report-cols, .queue-wide, .task-detail { grid-template-columns: 1fr; }
   .activity { max-width: none; }
   .main { padding-top: 24px; }
 }

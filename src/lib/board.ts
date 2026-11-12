@@ -1,6 +1,7 @@
 import { livePillMood, type LiveAgentView } from "@/lib/live";
 import { formatEtTime, formatIsoMonthDay } from "@/lib/time";
 import type { ActivityRow, Agent, Mood, Report, Task } from "@/lib/types";
+import { canonicalStatus, countsAsBlocked, personName } from "@/lib/work";
 
 export type Bubble = {
   kind: "work" | "stuck" | "nap";
@@ -85,8 +86,8 @@ export function buildBoard(
   const latestByAgent = new Map((latest?.reports ?? []).map((report) => [report.agent_id, report]));
   const cards = agents.map((agent) => {
     const mine = tasks.filter((task) => task.agent_id === agent.id);
-    const todo = mine.filter((task) => task.status === "todo").length;
-    const doing = mine.filter((task) => task.status === "doing").length;
+    const todo = mine.filter((task) => canonicalStatus(task.status) === "todo").length;
+    const doing = mine.filter((task) => canonicalStatus(task.status) === "in_progress").length;
     const doneToday = mine
       .filter((task) => isDoneOnDay(task, startMs, endMs))
       .sort((a, b) => (a.done_at ?? "").localeCompare(b.done_at ?? ""))
@@ -120,7 +121,7 @@ export function buildBoard(
     todo: cards.reduce((sum, card) => sum + card.todo, 0),
     doing: cards.reduce((sum, card) => sum + card.doing, 0),
     doneToday: cards.reduce((sum, card) => sum + card.doneCount, 0),
-    blocked: tasks.filter((task) => task.blocked && task.status !== "done").length,
+    blocked: tasks.filter((task) => countsAsBlocked(task)).length,
     reportsPosted: cards.filter((card) => card.reportPosted).length,
     reportsMissing: cards.filter((card) => !card.reportPosted).length,
     latestReportDate: useLatest && latest ? latest.date : null,
@@ -148,12 +149,12 @@ export function presentActivity(rows: ActivityRow[], agents: Agent[], moods: Map
   const bySlug = new Map(agents.map((agent) => [agent.slug, agent]));
   const byName = new Map(agents.map((agent) => [agent.name, agent]));
   return rows.map((row) => {
-    const isTito = row.actor === "tito";
+    const isTito = row.actor === "tito" || row.actor === "herzen";
     const agent = bySlug.get(row.actor) ?? byName.get(row.actor);
     return {
       id: row.id,
       actor: row.actor,
-      actorName: isTito ? "Tito" : (agent?.name ?? row.actor),
+      actorName: row.actor === "herzen" ? "Herzen" : isTito ? "Tito" : (agent?.name ?? personName(row.actor, agents)),
       summary: row.summary,
       timeLabel: `${formatEtTime(new Date(row.created_at))} ET`,
       createdAt: row.created_at,

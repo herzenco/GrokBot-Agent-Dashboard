@@ -59,4 +59,14 @@ describe("live board components", () => {
     expect(avatarPalette("Hondo", "idle").label).toBe("Hondo, napping");
     expect(avatarPalette("Frick", "active").label).toBe("Frick, working");
   });
+
+  it("gives C3PO a gold tile and the letter fallback", () => {
+    expect(avatarPalette("C3PO", "active").known).toBe(false);
+    expect(avatarPalette("C3PO", "active").c.tile).toBe("var(--tile-c3po)");
+    expect(avatarPalette("C-3PO", "idle").c.tile).toBe("var(--tile-c3po)");
+    const html = renderToStaticMarkup(<LiveAvatar name="C3PO" agentId="c3po" fallback="active" size={60} />);
+    expect(html).toContain("avatar-fallback");
+    expect(html).toContain(">C<");
+    expect(html).toContain("var(--tile-c3po)");
+  });
 });

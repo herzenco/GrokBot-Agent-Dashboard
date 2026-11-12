@@ -11,9 +11,14 @@ export function Avatar({
 }) {
   const model = avatarPalette(name, mood);
   if (!model.known) {
+    const letter = name.trim().slice(0, 1).toUpperCase() || "?";
     return (
-      <span className="avatar avatar-fallback" style={{ width: size, height: size }} aria-label={name}>
-        {name.slice(0, 1).toUpperCase()}
+      <span
+        className="avatar avatar-fallback"
+        style={{ width: size, height: size, background: model.c.tile }}
+        aria-label={name}
+      >
+        {letter}
       </span>
     );
   }

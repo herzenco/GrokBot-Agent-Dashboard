@@ -6,6 +6,7 @@ import { agentById, applyTaskPatch, createTaskForAgent } from "@/lib/mutations";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
 import type { Priority, TaskStatus } from "@/lib/types";
 import { isUuid } from "@/lib/url";
+import { parsePriority, parseStatus } from "@/lib/work";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -21,13 +22,13 @@ function refresh() {
 }
 
 function asPriority(value: string): Priority | null {
-  if (value === "low" || value === "normal" || value === "high") return value;
-  return null;
+  const parsed = parsePriority(value);
+  return parsed.ok ? parsed.priority : null;
 }
 
 function asStatus(value: string): TaskStatus | null {
-  if (value === "todo" || value === "doing" || value === "done") return value;
-  return null;
+  const parsed = parseStatus(value);
+  return parsed.ok ? parsed.status : null;
 }
 
 export async function createTaskAction(input: {

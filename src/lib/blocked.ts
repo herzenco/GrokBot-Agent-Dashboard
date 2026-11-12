@@ -1,4 +1,5 @@
 import { formatCancunTimestamp, formatIsoMonthDay } from "@/lib/time";
+import { isClosedStatus } from "@/lib/work";
 import type { LiveState, Mood, ReportBlockedItem, Task } from "@/lib/types";
 import { isHttpUrl } from "@/lib/url";
 
@@ -393,7 +394,7 @@ function taskWaiting(task: TaskBlockedInput & { blocked_note?: string | null }):
 }
 
 export function taskBlockedEntry(agent: BlockedAgentRef, task: Task, mood: Mood): BlockedEntry | null {
-  if (!task.blocked || task.status === "done") return null;
+  if (!task.blocked || isClosedStatus(task.status)) return null;
   const details = resolveBlockedDetails({
     title: task.title,
     details: task.details,
