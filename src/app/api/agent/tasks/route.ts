@@ -3,7 +3,8 @@ import { agentForWrite, authenticate, isResponse, jsonError, readJson } from "@/
 import { listAgents, listTasks, listTasksForAgent } from "@/lib/data";
 import { createTaskForAgent } from "@/lib/mutations";
 import { mergeExternalRefs, parseTaskCreate, parseTaskQuery, taskMatchesQuery } from "@/lib/work";
-import { presentStoredTask, presentStoredTasks, resolveTaskRelations } from "@/lib/work-db";
+import { toPublicResolution } from "@/lib/resolutions";
+import { attachPendingResolutions, presentStoredTask, presentStoredTasks, resolveTaskRelations } from "@/lib/work-db";
 
 export async function GET(req: Request) {
   const actor = await authenticate(req);
@@ -30,9 +31,19 @@ export async function GET(req: Request) {
 
   const presented = await presentStoredTasks(tasks);
   const filtered = presented.filter((task) => taskMatchesQuery(task, parsed.query));
-  if (!actor.admin) return Response.json({ agent: actor.agent.slug, tasks: filtered });
-  if (requested) return Response.json({ agent: requested, tasks: filtered });
-  return Response.json({ tasks: filtered });
+  const withResolutions =
+    parsed.query.resolution === "pending" ? await attachPendingResolutionViews(filtered) : filtered;
+  if (!actor.admin) return Response.json({ agent: actor.agent.slug, tasks: withResolutions });
+  if (requested) return Response.json({ agent: requested, tasks: withResolutions });
+  return Response.json({ tasks: withResolutions });
+}
+
+async function attachPendingResolutionViews<T extends { id: string }>(tasks: T[]) {
+  const attached = await attachPendingResolutions(tasks);
+  return attached.map((task) => ({
+    ...task,
+    pending_resolution: toPublicResolution(task.pending_resolution),
+  }));
 }
 
 export async function POST(req: Request) {

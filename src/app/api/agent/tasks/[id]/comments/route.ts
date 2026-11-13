@@ -18,6 +18,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (isResponse(access)) return access;
   const body = await readJson(req);
   if (isResponse(body)) return body;
+  if ("kind" in body && body.kind !== undefined && body.kind !== "comment") {
+    return jsonError("kind must be comment. Resolutions are posted from Agent HQ", 400);
+  }
   const text = asText(body.body, "body", 8000, true);
   if (isResponse(text) || !text) return isResponse(text) ? text : jsonError("body is required", 400);
   let author = access.actor.admin ? "herzen" : access.actor.agent.slug;

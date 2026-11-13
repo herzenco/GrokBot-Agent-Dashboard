@@ -5,6 +5,7 @@ import { WorkBoard, WorkList, type WorkCard } from "@/components/work-board";
 import { WorkCreate } from "@/components/work-create";
 import { WorkViewSwitch } from "@/components/work-view-switch";
 import { loadChrome } from "@/lib/chrome";
+import { blockedEntriesByTaskId } from "@/lib/blocked";
 import { selectMyTasks } from "@/lib/my-tasks";
 import { etTodayISO } from "@/lib/time";
 import { parseTaskQuery, taskMatchesQuery, type TaskMatch } from "@/lib/work";
@@ -81,6 +82,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
     dueOn: task.due_on ?? null,
     labels: task.labels ?? [],
     updatedAt: task.updated_at,
+    resolutionPending: task.resolution_pending === true || task.resolution_state === "awaiting_agent",
   }));
   const activeProjects = projects.filter((project) => !project.archived_at);
 
@@ -101,7 +103,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
       />
       {view === "mine" ? (
         <>
-          <MyTasks selection={mine} />
+          <MyTasks selection={mine} entries={blockedEntriesByTaskId(chrome.agents, chrome.tasks)} />
           <WorkCreate agents={chrome.agents} projects={activeProjects} />
         </>
       ) : (

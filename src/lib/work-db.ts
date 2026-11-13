@@ -2,8 +2,10 @@ import "server-only";
 import { db } from "@/lib/db";
 import { getTask, listAgents } from "@/lib/data";
 import { runLinearImport, type AgentRef, type ImportResult, type ImportTask, type LinearStore, type LinearWrite } from "@/lib/linear-import";
-import { canonicalStatus, formatIdentifier, inferLinkKind, parseIdentifier, presentTask, slugify, TASK_COLUMNS } from "@/lib/work";
-import type { Agent, BlockEvent, ExternalRefs, Label, LinkKind, Project, Task, TaskComment, TaskLink } from "@/lib/types";
+import { notifyResolutionWebhook } from "@/lib/resolution-webhook";
+import { isPendingResolution } from "@/lib/resolutions";
+import { blockSnapshot, canonicalStatus, formatIdentifier, inferLinkKind, isClosedStatus, parseIdentifier, presentTask, slugify, TASK_COLUMNS } from "@/lib/work";
+import type { Agent, BlockEvent, CommentKind, ExternalRefs, Label, LinkKind, Project, Task, TaskComment, TaskLink } from "@/lib/types";
 import { isUuid } from "@/lib/url";
 
 async function recordActivity(row: {
@@ -278,7 +280,7 @@ export async function deleteTaskLink(id: string, actor = "herzen"): Promise<Task
   return link;
 }
 
-const COMMENT_COLUMNS = "id,task_id,author,body,created_at,updated_at";
+const COMMENT_COLUMNS = "id,task_id,author,body,kind,created_at,updated_at";
 
 export async function listComments(taskId: string): Promise<TaskComment[]> {
   const { data, error } = await db().from("task_comments").select(COMMENT_COLUMNS).eq("task_id", taskId).order("created_at");
@@ -292,18 +294,27 @@ export async function getComment(id: string): Promise<TaskComment | null> {
   return (data as TaskComment | null) ?? null;
 }
 
-export async function addComment(input: { task: Task; author: string; body: string }): Promise<TaskComment> {
+export async function addComment(input: {
+  task: Task;
+  author: string;
+  body: string;
+  kind?: CommentKind;
+}): Promise<TaskComment> {
+  const kind = input.kind ?? "comment";
   const { data, error } = await db()
     .from("task_comments")
-    .insert({ task_id: input.task.id, author: input.author, body: input.body.trim() })
+    .insert({ task_id: input.task.id, author: input.author, body: input.body.trim(), kind })
     .select(COMMENT_COLUMNS)
     .single();
   if (error) throw new Error(error.message);
   await recordActivity({
     actor: input.author,
-    verb: "commented",
+    verb: kind === "resolution" ? "resolution" : "commented",
     task_id: input.task.id,
-    summary: `commented on ${quote(input.task.title)}`,
+    summary:
+      kind === "resolution"
+        ? `posted a resolution on ${quote(input.task.title)}`
+        : `commented on ${quote(input.task.title)}`,
   });
   return data as TaskComment;
 }
@@ -349,7 +360,7 @@ export async function deleteComment(id: string, actor: string): Promise<TaskComm
 export async function listBlockEvents(taskId: string): Promise<BlockEvent[]> {
   const { data, error } = await db()
     .from("task_block_events")
-    .select("id,task_id,action,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,actor,created_at")
+    .select("id,task_id,action,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,detail,actor,created_at")
     .eq("task_id", taskId)
     .order("created_at");
   if (error) throw new Error(error.message);
@@ -367,14 +378,132 @@ export async function insertBlockEvent(input: {
     waiting_on: string | null;
     source_url: string | null;
   };
+  detail?: string | null;
 }): Promise<void> {
   const { error } = await db().from("task_block_events").insert({
     task_id: input.taskId,
     action: input.action,
     actor: input.actor,
+    detail: input.detail ?? null,
     ...input.snapshot,
   });
   if (error) throw new Error(error.message);
+}
+
+export async function listResolutionComments(taskId: string): Promise<TaskComment[]> {
+  const { data, error } = await db()
+    .from("task_comments")
+    .select(COMMENT_COLUMNS)
+    .eq("task_id", taskId)
+    .eq("kind", "resolution")
+    .order("created_at");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as TaskComment[];
+}
+
+export async function latestResolutionComments(taskIds: string[]): Promise<Map<string, TaskComment>> {
+  const map = new Map<string, TaskComment>();
+  if (taskIds.length === 0) return map;
+  const { data, error } = await db()
+    .from("task_comments")
+    .select(COMMENT_COLUMNS)
+    .in("task_id", taskIds)
+    .eq("kind", "resolution")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  for (const row of (data ?? []) as TaskComment[]) {
+    if (!map.has(row.task_id)) map.set(row.task_id, row);
+  }
+  return map;
+}
+
+export async function attachPendingResolutions<T extends { id: string }>(
+  tasks: T[],
+): Promise<(T & { pending_resolution: TaskComment | null })[]> {
+  const map = await latestResolutionComments(tasks.map((task) => task.id));
+  return tasks.map((task) => ({
+    ...task,
+    pending_resolution: map.get(task.id) ?? null,
+  }));
+}
+
+export async function postHerzenResolution(task: Task, body: string): Promise<TaskComment | { error: string }> {
+  const text = body.trim();
+  if (!text) return { error: "Resolution is required" };
+  if (text.length > 8000) return { error: "Resolution must be 8000 characters or fewer" };
+  if (!task.blocked || isClosedStatus(task.status)) return { error: "Post a resolution on an open blocked task" };
+
+  const comment = await addComment({ task, author: "herzen", body: text, kind: "resolution" });
+  const { error } = await db()
+    .from("tasks")
+    .update({
+      resolution_state: "awaiting_agent",
+      resolution_pending: true,
+      latest_resolution_at: comment.created_at,
+      resolution_acknowledged_at: null,
+    })
+    .eq("id", task.id);
+  if (error) {
+    await db().from("task_comments").delete().eq("id", comment.id);
+    throw new Error(error.message);
+  }
+  await insertBlockEvent({
+    taskId: task.id,
+    actor: "herzen",
+    action: "resolution",
+    snapshot: blockSnapshot(task),
+    detail: text,
+  });
+  const agents = await listAgents();
+  const owner = agents.find((agent) => agent.id === task.agent_id);
+  await notifyResolutionWebhook({
+    event: "resolution.created",
+    task_id: task.id,
+    identifier: task.identifier ?? null,
+    agent: owner?.slug ?? null,
+    title: task.title,
+    blocked_reason: task.blocked_reason ?? task.blocked_note ?? null,
+    resolution: {
+      id: comment.id,
+      author: comment.author,
+      body: comment.body,
+      created_at: comment.created_at,
+    },
+  });
+  return comment;
+}
+
+export async function acknowledgeResolution(
+  task: Task,
+  actor: string,
+): Promise<{ task: Task } | { error: string }> {
+  if (!isPendingResolution(task)) return { error: "No resolution is waiting on this task" };
+  const acknowledgedAt = new Date().toISOString();
+  const { data, error } = await db()
+    .from("tasks")
+    .update({
+      resolution_state: "acknowledged",
+      resolution_pending: false,
+      resolution_acknowledged_at: acknowledgedAt,
+    })
+    .eq("id", task.id)
+    .select(TASK_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  await insertBlockEvent({
+    taskId: task.id,
+    actor,
+    action: "resolution_acknowledged",
+    snapshot: blockSnapshot(task),
+    detail: null,
+  });
+  await recordActivity({
+    actor,
+    verb: "resolution_acknowledged",
+    task_id: task.id,
+    summary: `acknowledged the resolution on ${quote(task.title)}`,
+  });
+  return { task: data as Task };
 }
 
 export async function listTaskActivity(taskId: string) {

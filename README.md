@@ -22,7 +22,7 @@ cp .env.example .env.local
 supabase db push
 ```
 
-`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. `20261020140000_document_event_from_path.sql` adds `document_events.from_path`. `20261021140000_outreach.sql` adds the `outreach` table. `20261026163500_blocked_details_columns.sql` and `20261112140000_blocked_waiting_and_source.sql` add the block detail columns. `20261112210000_work_tracking.sql` adds projects, labels, durable links, comments, block history, external refs, and stable `HQ-` task numbers. It also rewrites existing `doing` rows to `in_progress` and `normal` priority to `medium`. The later files insert no sample rows and no agent or API key. Apply them before using live status, document moves, outreach, or the Work tab. This repo does not apply them for you. Apply `20261112210000_work_tracking.sql` before deploying the app that reads the new columns.
+`20261019120000_init.sql` creates the board. `20261019180000_agent_heartbeats.sql` adds the live heartbeat tables. `20261020120000_agent_last_active.sql` adds `agents.last_active`. `20261020140000_document_event_from_path.sql` adds `document_events.from_path`. `20261021140000_outreach.sql` adds the `outreach` table. `20261026163500_blocked_details_columns.sql` and `20261112140000_blocked_waiting_and_source.sql` add the block detail columns. `20261112210000_work_tracking.sql` adds projects, labels, durable links, comments, block history, external refs, and stable `HQ-` task numbers. It also rewrites existing `doing` rows to `in_progress` and `normal` priority to `medium`. `20261113150000_task_resolutions.sql` adds resolution comments and the awaiting-agent fields. The later files insert no sample rows and no agent or API key. Apply them before using live status, document moves, outreach, or the Work tab. This repo does not apply them for you. Apply `20261112210000_work_tracking.sql` and `20261113150000_task_resolutions.sql` before deploying the app that reads the new columns.
 
 4. Start the app:
 
@@ -45,6 +45,8 @@ Set these in `.env.local` for local dev and in the Vercel project for production
 | `DASHBOARD_PASSWORD` | Password for the login form |
 | `SESSION_SECRET` | HMAC secret for the session cookie. Use a long random value (`openssl rand -base64 32`). |
 | `ADMIN_API_KEY` | Admin agent API key. May act for any agent. Use a long random value. |
+| `RESOLUTION_WEBHOOK_URL` | Optional. Where to POST a new resolution. Unset means agents poll. |
+| `RESOLUTION_WEBHOOK_SECRET` | Optional. HMAC secret for that POST. Both must be set or the webhook is skipped. |
 
 The session cookie is httpOnly, SameSite=Lax, and valid for 30 days. In production it is also marked Secure. Login attempts are limited to 8 failures per IP per 15 minutes, in memory on each server instance.
 
@@ -151,12 +153,13 @@ Herzen uses the password-protected Work tab (`/work`): a board by status, a filt
 3. When something is stuck, send `blocked: true` and a note. Those block fields still clear when the block ends or the task is done or canceled. The previous block is kept in `block_history`.
 4. Put the PR, issue, doc, or deploy on `links`. Those rows stay when the block clears.
 5. Comment on the task. The activity log records who changed what.
+6. When Herzen posts a resolution on a blocked task, poll `GET /api/agent/resolutions` and acknowledge it. See `docs/resolutions.md`.
 
 `priority` is `none`, `low`, `medium`, `high`, or `urgent`. `normal` is still accepted and stored as `medium`. Omit it and the task is medium.
 
 ### List tasks
 
-An agent key returns that agent's tasks. An admin key returns every task, or one agent when `?agent=` is set. Optional filters: `status` (`doing` matches in progress), `priority` (`normal` matches medium), `project` (slug, name, or id), `label`, `blocked` (`true` or `false`), `assignee` (`herzen` or an agent slug), `parent` (`HQ-123` or a task id), and `q` (identifier, title, description, Linear id, or `bc-` cloud agent id).
+An agent key returns that agent's tasks. An admin key returns every task, or one agent when `?agent=` is set. Optional filters: `status` (`doing` matches in progress), `priority` (`normal` matches medium), `project` (slug, name, or id), `label`, `blocked` (`true` or `false`), `resolution` (`pending`), `assignee` (`herzen` or an agent slug), `parent` (`HQ-123` or a task id), and `q` (identifier, title, description, Linear id, or `bc-` cloud agent id). `resolution=pending` adds `pending_resolution` (`id`, `author`, `body`, `kind`, `created_at`) on each task.
 
 ```bash
 curl -s http://localhost:3000/api/agent/tasks \
@@ -201,7 +204,7 @@ Send only the fields that change. `PATCH /api/agent/tasks/HQ-123` and `PATCH /ap
 | `waiting_on` | Who or what it is waiting on. If this is set and `unblock_needed` is omitted, `unblock_needed` is set to the same text. |
 | `source_url` | `http` or `https` link for the block. Also saved as a durable link. |
 
-Clearing the block, or moving the task to done or canceled, clears `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, and `source_url`. The link row and the block history remain. Only the admin key can set `agent` to a different slug. `DELETE /api/agent/tasks/HQ-123` cancels the task and keeps its comments, links, and history.
+Clearing the block, or moving the task to done or canceled, clears `blocked_note`, `blocked_reason`, `unblock_needed`, `waiting_on`, and `source_url`. The link row and the block history remain. If a resolution is still awaiting the agent, clearing the block acknowledges it. Only the admin key can set `agent` to a different slug. `DELETE /api/agent/tasks/HQ-123` cancels the task and keeps its comments, links, and history.
 
 ```bash
 curl -s -X PATCH http://localhost:3000/api/agent/tasks/HQ-123 \
@@ -218,6 +221,54 @@ curl -s -X PATCH http://localhost:3000/api/agent/tasks/HQ-123 \
     "cloud_agent_id": "bc-abc123"
   }'
 ```
+
+### Resolutions
+
+Herzen posts these from the blocked-item detail. They are `task_comments` rows with `kind: "resolution"` and `author: "herzen"`. Poll the pending list from an agent routine. `GET /api/agent/resolutions` is the same data in a short shape. An agent key sees only its own tasks. The admin key sees every agent, or one agent with `?agent=`.
+
+```bash
+curl -s "http://localhost:3000/api/agent/tasks?resolution=pending" \
+  -H "Authorization: Bearer $ROGER_KEY"
+
+curl -s http://localhost:3000/api/agent/resolutions \
+  -H "Authorization: Bearer $ROGER_KEY"
+```
+
+```json
+{
+  "agent": "roger",
+  "resolutions": [
+    {
+      "task_id": "33333333-3333-4333-8333-333333333333",
+      "identifier": "HQ-12",
+      "title": "Ship the board",
+      "agent": "roger",
+      "blocked": true,
+      "blocked_reason": "DNS still pending",
+      "resolution_state": "awaiting_agent",
+      "latest_resolution_at": "2026-11-13T19:05:00.000Z",
+      "resolution": {
+        "id": "44444444-4444-4444-8444-444444444444",
+        "author": "herzen",
+        "body": "Use the sandbox key and retry the export.",
+        "kind": "resolution",
+        "created_at": "2026-11-13T19:05:00.000Z"
+      }
+    }
+  ]
+}
+```
+
+Acknowledge with `POST /api/agent/tasks/HQ-12/resolution/ack`. `reply` is an optional comment. `blocked: false` and `status` are optional and use the same task update as `PATCH`. Unblocking, or moving the task to done or canceled, acknowledges a pending resolution even when this endpoint is not called.
+
+```bash
+curl -s -X POST http://localhost:3000/api/agent/tasks/HQ-12/resolution/ack \
+  -H "Authorization: Bearer $ROGER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"reply":"Using the sandbox key.","blocked":false,"status":"in_progress"}'
+```
+
+The response is the task (same fields as `GET /api/agent/tasks/HQ-12`) plus `acknowledged` and `reply`. `reply` is the comment object, or `null`.
 
 ### Projects, comments, and links
 

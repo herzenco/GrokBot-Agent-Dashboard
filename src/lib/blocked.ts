@@ -1,6 +1,6 @@
 import { formatCancunTimestamp, formatIsoMonthDay } from "@/lib/time";
 import { isClosedStatus } from "@/lib/work";
-import type { LiveState, Mood, ReportBlockedItem, Task } from "@/lib/types";
+import type { LiveState, Mood, ReportBlockedItem, ResolutionState, Task } from "@/lib/types";
 import { isHttpUrl } from "@/lib/url";
 
 export const BLOCK_REVIEW_FALLBACK = "Review block note and confirm next step with agent";
@@ -63,6 +63,7 @@ export type BlockedEntry = {
   sourceUrl: string | null;
   sourceLabel: string | null;
   task: BlockedEntryTask | null;
+  resolutionState?: ResolutionState;
 };
 
 export type BlockedDetailView = {
@@ -415,7 +416,20 @@ export function taskBlockedEntry(agent: BlockedAgentRef, task: Task, mood: Mood)
       blockedReason: task.blocked_reason ?? task.blocked_note ?? "",
       unblockNeeded: task.unblock_needed ?? "",
     },
+    resolutionState: task.resolution_state ?? (task.resolution_pending ? "awaiting_agent" : "none"),
   };
+}
+
+export function blockedEntriesByTaskId(agents: BlockedAgentRef[], tasks: Task[]): Record<string, BlockedEntry> {
+  const byAgent = new Map(agents.map((agent) => [agent.id, agent]));
+  const entries: Record<string, BlockedEntry> = {};
+  for (const task of tasks) {
+    const agent = byAgent.get(task.agent_id);
+    if (!agent) continue;
+    const entry = taskBlockedEntry(agent, task, "blocked");
+    if (entry) entries[task.id] = entry;
+  }
+  return entries;
 }
 
 export function agentBlockedEntry(

@@ -590,6 +590,18 @@ button.bubble {
   color: var(--muted);
 }
 .pri-high, .pri-urgent, .blocked-badge { background: var(--orange-soft); color: var(--orange); }
+.resolution-badge {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  width: fit-content;
+}
 button.blocked-badge { font: inherit; cursor: pointer; }
 button.blocked-note {
   width: 100%;
@@ -928,6 +940,18 @@ button.blocked-note {
 }
 .my-task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .my-task-list li { margin: 0; }
+.my-task-shell { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.my-task-shell .my-task { flex: 1; min-width: 0; }
+.my-task-resolve { align-self: center; white-space: nowrap; }
+.resolution-box { display: flex; flex-direction: column; gap: 10px; }
+.resolution-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.resolution-note {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.resolution-note p { margin: 6px 0 0; white-space: pre-wrap; }
 .my-task {
   display: block;
   background: var(--surface);

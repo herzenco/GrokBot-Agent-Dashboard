@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { setTaskBlockedAction } from "@/app/actions";
 import { Avatar } from "@/components/avatar";
+import { ResolutionBox } from "@/components/resolution-box";
 import { NOT_PROVIDED, blockedDetailFields, type BlockedDetailView, type BlockedEntry } from "@/lib/blocked";
 
 const FOCUSABLE =
@@ -131,6 +132,9 @@ function BlockedEntryView({
       <BlockField title="Reported" value={fields.reportedAt} />
       <SourceField fields={fields} />
       <BlockField title="What is needed to unblock it" value={fields.unblockNeeded} />
+      {entry.task ? (
+        <ResolutionBox taskId={entry.task.id} state={entry.resolutionState ?? "none"} canPost />
+      ) : null}
       {entry.task ? <TaskBlockEditor entry={entry} onDone={onDone} /> : null}
     </article>
   );

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { setTaskStatusAction } from "@/app/actions";
+import { AwaitingAgentBadge } from "@/components/resolution-box";
 import { formatCancunTimestamp } from "@/lib/time";
 import type { TaskStatus } from "@/lib/types";
 import { WORK_COLUMNS, canonicalPriority, columnStatus, type CanonicalStatus } from "@/lib/work";
@@ -20,6 +21,7 @@ export type WorkCard = {
   dueOn: string | null;
   labels: string[];
   updatedAt: string;
+  resolutionPending?: boolean;
 };
 
 export function WorkBoard({ tasks }: { tasks: WorkCard[] }) {
@@ -88,6 +90,7 @@ export function WorkBoard({ tasks }: { tasks: WorkCard[] }) {
                       <span>{task.agentName}</span>
                       {task.projectName ? <span>{task.projectName}</span> : null}
                       {task.blocked ? <span className="blocked-badge">Blocked</span> : null}
+                      {task.resolutionPending ? <AwaitingAgentBadge /> : null}
                     </div>
                     {task.labels.length ? <p className="quiet-line">{task.labels.join(", ")}</p> : null}
                     <p className="quiet-line">
@@ -136,7 +139,15 @@ export function WorkList({ tasks }: { tasks: WorkCard[] }) {
               <td>{task.projectName ?? "—"}</td>
               <td>{task.dueOn ?? "—"}</td>
               <td>{task.labels.join(", ") || "—"}</td>
-              <td>{task.blocked ? "Yes" : "No"}</td>
+              <td>
+                {task.blocked ? "Yes" : "No"}
+                {task.resolutionPending ? (
+                  <>
+                    {" "}
+                    <AwaitingAgentBadge />
+                  </>
+                ) : null}
+              </td>
             </tr>
           ))}
         </tbody>

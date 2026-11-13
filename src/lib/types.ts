@@ -8,6 +8,8 @@ export type TaskStatus =
   | "done"
   | "canceled";
 export type LinkKind = "pr" | "issue" | "doc" | "deploy" | "other";
+export type CommentKind = "comment" | "resolution";
+export type ResolutionState = "none" | "awaiting_agent" | "acknowledged";
 export type ExternalRefs = Record<string, string>;
 export type DocAction = "created" | "edited" | "moved" | "archived";
 export type Mood = "active" | "blocked" | "idle";
@@ -54,6 +56,10 @@ export type Task = {
   due_on?: string | null;
   parent_id?: string | null;
   external_refs?: ExternalRefs | null;
+  resolution_state?: ResolutionState;
+  resolution_pending?: boolean;
+  latest_resolution_at?: string | null;
+  resolution_acknowledged_at?: string | null;
   created_at: string;
   updated_at: string;
   done_at: string | null;
@@ -91,6 +97,7 @@ export type TaskComment = {
   task_id: string;
   author: string;
   body: string;
+  kind?: CommentKind;
   created_at: string;
   updated_at: string;
 };
@@ -98,12 +105,13 @@ export type TaskComment = {
 export type BlockEvent = {
   id: string;
   task_id: string;
-  action: "blocked" | "updated" | "cleared";
+  action: "blocked" | "updated" | "cleared" | "resolution" | "resolution_acknowledged";
   blocked_note: string | null;
   blocked_reason: string | null;
   unblock_needed: string | null;
   waiting_on: string | null;
   source_url: string | null;
+  detail?: string | null;
   actor: string;
   created_at: string;
 };
