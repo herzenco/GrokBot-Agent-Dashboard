@@ -1,9 +1,12 @@
-import Link from "next/link";
+import { MyTasks } from "@/components/my-tasks";
 import { ProjectPanel } from "@/components/project-panel";
 import { Shell } from "@/components/shell";
 import { WorkBoard, WorkList, type WorkCard } from "@/components/work-board";
 import { WorkCreate } from "@/components/work-create";
+import { WorkViewSwitch } from "@/components/work-view-switch";
 import { loadChrome } from "@/lib/chrome";
+import { selectMyTasks } from "@/lib/my-tasks";
+import { etTodayISO } from "@/lib/time";
 import { parseTaskQuery, taskMatchesQuery, type TaskMatch } from "@/lib/work";
 import { listLabels, listProjects, taskLabelNames } from "@/lib/work-db";
 
@@ -20,7 +23,7 @@ type Search = {
   q?: string;
 };
 
-function keep(params: Search, view: string) {
+function boardHref(params: Search, view: "board" | "list") {
   const search = new URLSearchParams();
   search.set("view", view);
   for (const key of ["agent", "project", "status", "priority", "label", "blocked", "q"] as const) {
@@ -32,8 +35,16 @@ function keep(params: Search, view: string) {
 
 export default async function WorkPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
-  const chrome = await loadChrome();
-  const [projects, labels, labelMap] = await Promise.all([listProjects(), listLabels(), taskLabelNames()]);
+  const view = params.view === "list" ? "list" : params.view === "board" ? "board" : "mine";
+  const now = new Date();
+  const [chrome, projects, labels, labelMap] = await Promise.all([
+    loadChrome(now),
+    listProjects(),
+    listLabels(),
+    taskLabelNames(),
+  ]);
+  const today = etTodayISO(now);
+  const mine = selectMyTasks(chrome.tasks, chrome.agents, today, projects);
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (typeof value === "string" && key !== "view") queryParams.set(key, value);
@@ -71,102 +82,112 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
     labels: task.labels ?? [],
     updatedAt: task.updated_at,
   }));
-  const view = params.view === "list" ? "list" : "board";
   const activeProjects = projects.filter((project) => !project.archived_at);
 
   return (
     <Shell active="work" agents={chrome.agents} live={chrome.live} activity={chrome.activity}>
       <p className="dateline">Work</p>
-      <h1 className="greeting">Tasks</h1>
-      <p className="subhead">Board and list for Herzen and the agents. Times are America/Cancun.</p>
-      <div className="work-toolbar">
-        <Link className={view === "board" ? "btn is-on" : "btn"} href={keep(params, "board")}>
-          Board
-        </Link>
-        <Link className={view === "list" ? "btn is-on" : "btn"} href={keep(params, "list")}>
-          List
-        </Link>
-      </div>
-      <form className="work-toolbar" action="/work">
-        <input type="hidden" name="view" value={view} />
-        <label className="field">
-          Search
-          <input name="q" defaultValue={params.q ?? ""} placeholder="HQ-123, title, bc-…" />
-        </label>
-        <label className="field">
-          Agent
-          <select name="agent" defaultValue={params.agent ?? ""}>
-            <option value="">All</option>
-            {chrome.agents.map((agent) => (
-              <option key={agent.id} value={agent.slug}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Project
-          <select name="project" defaultValue={params.project ?? ""}>
-            <option value="">All</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.slug}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Status
-          <select name="status" defaultValue={params.status ?? ""}>
-            <option value="">All</option>
-            <option value="backlog">Backlog</option>
-            <option value="todo">To do</option>
-            <option value="in_progress">In progress</option>
-            <option value="doing">Doing</option>
-            <option value="in_review">In review</option>
-            <option value="done">Done</option>
-            <option value="canceled">Canceled</option>
-          </select>
-        </label>
-        <label className="field">
-          Priority
-          <select name="priority" defaultValue={params.priority ?? ""}>
-            <option value="">All</option>
-            <option value="none">None</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select>
-        </label>
-        <label className="field">
-          Label
-          <select name="label" defaultValue={params.label ?? ""}>
-            <option value="">All</option>
-            {labels.map((label) => (
-              <option key={label.id} value={label.name}>
-                {label.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Blocked
-          <select name="blocked" defaultValue={params.blocked ?? ""}>
-            <option value="">All</option>
-            <option value="true">Blocked</option>
-            <option value="false">Not blocked</option>
-          </select>
-        </label>
-        <button type="submit" className="btn">
-          Filter
-        </button>
-      </form>
-      {parsed.ok ? null : <p className="form-error">{parsed.error}</p>}
-      <WorkCreate agents={chrome.agents} projects={activeProjects} />
-      {view === "list" ? <WorkList tasks={cards} /> : <WorkBoard tasks={cards} />}
-      <ProjectPanel projects={projects} />
+      <h1 className="greeting">{view === "mine" ? "My tasks" : "Tasks"}</h1>
+      <p className="subhead">
+        {view === "mine"
+          ? "Open tasks assigned to you, or blocked and waiting on you. Due dates are Eastern Time."
+          : "Board and list for Herzen and the agents. Times are America/Cancun."}
+      </p>
+      <WorkViewSwitch
+        view={view}
+        mineHref="/work"
+        boardHref={boardHref(params, "board")}
+        listHref={boardHref(params, "list")}
+      />
+      {view === "mine" ? (
+        <>
+          <MyTasks selection={mine} />
+          <WorkCreate agents={chrome.agents} projects={activeProjects} />
+        </>
+      ) : (
+        <>
+          <form className="work-toolbar" action="/work">
+            <input type="hidden" name="view" value={view} />
+            <label className="field">
+              Search
+              <input name="q" defaultValue={params.q ?? ""} placeholder="HQ-123, title, bc-…" />
+            </label>
+            <label className="field">
+              Agent
+              <select name="agent" defaultValue={params.agent ?? ""}>
+                <option value="">All</option>
+                {chrome.agents.map((agent) => (
+                  <option key={agent.id} value={agent.slug}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Project
+              <select name="project" defaultValue={params.project ?? ""}>
+                <option value="">All</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.slug}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Status
+              <select name="status" defaultValue={params.status ?? ""}>
+                <option value="">All</option>
+                <option value="backlog">Backlog</option>
+                <option value="todo">To do</option>
+                <option value="in_progress">In progress</option>
+                <option value="doing">Doing</option>
+                <option value="in_review">In review</option>
+                <option value="done">Done</option>
+                <option value="canceled">Canceled</option>
+              </select>
+            </label>
+            <label className="field">
+              Priority
+              <select name="priority" defaultValue={params.priority ?? ""}>
+                <option value="">All</option>
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <label className="field">
+              Label
+              <select name="label" defaultValue={params.label ?? ""}>
+                <option value="">All</option>
+                {labels.map((label) => (
+                  <option key={label.id} value={label.name}>
+                    {label.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Blocked
+              <select name="blocked" defaultValue={params.blocked ?? ""}>
+                <option value="">All</option>
+                <option value="true">Blocked</option>
+                <option value="false">Not blocked</option>
+              </select>
+            </label>
+            <button type="submit" className="btn">
+              Filter
+            </button>
+          </form>
+          {parsed.ok ? null : <p className="form-error">{parsed.error}</p>}
+          <WorkCreate agents={chrome.agents} projects={activeProjects} />
+          {view === "list" ? <WorkList tasks={cards} /> : <WorkBoard tasks={cards} />}
+          <ProjectPanel projects={projects} />
+        </>
+      )}
     </Shell>
   );
 }
