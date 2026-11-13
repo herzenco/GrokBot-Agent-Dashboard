@@ -1,7 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MyTasks } from "@/components/my-tasks";
+import type { BlockedEntry } from "@/lib/blocked";
 import { selectMyTasks, type MyTaskSource } from "@/lib/my-tasks";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => undefined }),
+}));
+vi.mock("@/app/work-actions", () => ({
+  listTaskResolutionsAction: vi.fn(),
+  postResolutionAction: vi.fn(),
+}));
 
 const today = "2026-11-13";
 
@@ -48,6 +57,36 @@ describe("My tasks view", () => {
     expect(html).toContain("Assigned to you");
     expect(html).toContain("Overdue");
     expect(html).toContain("my-task-overdue");
+  });
+
+  it("shows an awaiting-agent badge and a resolution control on a blocked row", () => {
+    const selection = selectMyTasks(
+      [task({ id: "1", resolution_pending: true })],
+      [{ id: "agent-roger", name: "Roger", sort_order: 1 }],
+      today,
+    );
+    const entry: BlockedEntry = {
+      id: "task-1",
+      agentId: "agent-roger",
+      agentName: "Roger",
+      agentRole: "Chief of staff",
+      agentSlug: "roger",
+      mood: "blocked",
+      kicker: "Task",
+      whatBlocked: "Ship the board",
+      whyBlocked: "DNS still pending",
+      unblockNeeded: "Approve the record",
+      waitingOn: "Herzen",
+      reportedAt: null,
+      sourceUrl: null,
+      sourceLabel: null,
+      resolutionState: "awaiting_agent",
+      task: { id: "1", note: "DNS still pending", blockedReason: "DNS still pending", unblockNeeded: "" },
+    };
+    const html = renderToStaticMarkup(<MyTasks selection={selection} entries={{ "1": entry }} />);
+    expect(html).toContain("Awaiting agent");
+    expect(html).toContain("Resolution");
+    expect(html).toContain('href="/work/HQ-12"');
   });
 
   it("shows an empty state when nothing is open", () => {

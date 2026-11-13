@@ -16,7 +16,7 @@ export type CanonicalStatus = "backlog" | "todo" | "in_progress" | "in_review" |
 export type CanonicalPriority = "none" | "low" | "medium" | "high" | "urgent";
 
 export const TASK_COLUMNS =
-  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,created_at,updated_at,done_at,number,identifier,project_id,assignee_agent_id,assignee_herzen,due_on,parent_id,external_refs";
+  "id,title,details,agent_id,priority,status,blocked,blocked_note,blocked_reason,unblock_needed,waiting_on,source_url,created_at,updated_at,done_at,number,identifier,project_id,assignee_agent_id,assignee_herzen,due_on,parent_id,external_refs,resolution_state,resolution_pending,latest_resolution_at,resolution_acknowledged_at";
 
 export const WORK_COLUMNS: { status: CanonicalStatus; label: string }[] = [
   { status: "backlog", label: "Backlog" },
@@ -831,6 +831,7 @@ export type TaskListQuery = {
   q?: string;
   assignee?: string;
   parent?: string;
+  resolution?: "pending";
 };
 
 export function parseTaskQuery(params: URLSearchParams): { ok: true; query: TaskListQuery } | { ok: false; error: string } {
@@ -868,6 +869,11 @@ export function parseTaskQuery(params: URLSearchParams): { ok: true; query: Task
   }
   const parent = params.get("parent");
   if (parent?.trim()) query.parent = parent.trim();
+  const resolution = params.get("resolution");
+  if (resolution !== null && resolution !== "") {
+    if (resolution.trim().toLowerCase() !== "pending") return { ok: false, error: "resolution must be pending" };
+    query.resolution = "pending";
+  }
   return { ok: true, query };
 }
 
@@ -883,6 +889,10 @@ export function taskMatchesQuery(task: TaskMatch, query: TaskListQuery): boolean
   if (query.status && canonicalStatus(task.status) !== query.status) return false;
   if (query.priority && canonicalPriority(task.priority) !== query.priority) return false;
   if (query.blocked !== undefined && task.blocked !== query.blocked) return false;
+  if (query.resolution === "pending") {
+    const pending = task.resolution_pending === true || task.resolution_state === "awaiting_agent";
+    if (!pending) return false;
+  }
   if (query.project) {
     const needle = query.project.toLowerCase();
     const slug = (task.project_slug ?? "").toLowerCase();
@@ -952,6 +962,10 @@ export function presentTask(
     status: canonicalStatus(task.status),
     external_refs: refsOf(task.external_refs),
     assignee_herzen: Boolean(task.assignee_herzen),
+    resolution_state: task.resolution_state ?? "none",
+    resolution_pending: Boolean(task.resolution_pending),
+    latest_resolution_at: task.latest_resolution_at ?? null,
+    resolution_acknowledged_at: task.resolution_acknowledged_at ?? null,
     agent: extras.agent,
     project: extras.project ?? null,
     assignee: task.assignee_herzen ? "herzen" : (extras.assignee ?? null),

@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { listAgents } from "@/lib/data";
+import { getTask, listAgents } from "@/lib/data";
 import { agentById, applyTaskPatch, createTaskForAgent, type TaskPatch } from "@/lib/mutations";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
-import type { LinkKind } from "@/lib/types";
+import type { LinkKind, ResolutionState } from "@/lib/types";
 import { isUuid } from "@/lib/url";
+import { resolutionStateOf, toPublicResolution } from "@/lib/resolutions";
 import { parseTaskCreate, parseTaskPatch } from "@/lib/work";
 import {
   addComment,
@@ -14,6 +15,8 @@ import {
   deleteTaskLink,
   ensureTaskLink,
   findTaskByKey,
+  listResolutionComments,
+  postHerzenResolution,
   replaceTaskLabels,
   resolveTaskRelations,
   updateProject,
@@ -145,6 +148,61 @@ export async function updateWorkTaskAction(
   if (value.labels) await replaceTaskLabels(result.task, value.labels, "herzen");
   refresh();
   return { ok: true };
+}
+
+export type ResolutionItem = {
+  id: string;
+  author: string;
+  body: string;
+  created_at: string;
+};
+
+export async function listTaskResolutionsAction(taskId: string): Promise<
+  | { ok: true; resolutions: ResolutionItem[]; state: ResolutionState; acknowledgedAt: string | null }
+  | { ok: false; error: string }
+> {
+  const denied = await gate();
+  if (denied && !denied.ok) return denied;
+  if (!isUuid(taskId)) return { ok: false, error: "Task not found" };
+  const task = await getTask(taskId);
+  if (!task) return { ok: false, error: "Task not found" };
+  const comments = await listResolutionComments(task.id);
+  return {
+    ok: true,
+    resolutions: comments.map((comment) => ({
+      id: comment.id,
+      author: comment.author,
+      body: comment.body,
+      created_at: comment.created_at,
+    })),
+    state: resolutionStateOf(task),
+    acknowledgedAt: task.resolution_acknowledged_at ?? null,
+  };
+}
+
+export async function postResolutionAction(
+  taskId: string,
+  body: string,
+): Promise<{ ok: true; resolution: ResolutionItem } | { ok: false; error: string }> {
+  const denied = await gate();
+  if (denied && !denied.ok) return denied;
+  if (!isUuid(taskId)) return { ok: false, error: "Task not found" };
+  const task = await getTask(taskId);
+  if (!task) return { ok: false, error: "Task not found" };
+  const saved = await postHerzenResolution(task, body);
+  if ("error" in saved) return { ok: false, error: saved.error };
+  const resolution = toPublicResolution(saved);
+  if (!resolution) return { ok: false, error: "Could not save the resolution" };
+  refresh();
+  return {
+    ok: true,
+    resolution: {
+      id: resolution.id,
+      author: resolution.author,
+      body: resolution.body,
+      created_at: resolution.created_at,
+    },
+  };
 }
 
 export async function commentOnTaskAction(taskKey: string, body: string): Promise<ActionResult> {

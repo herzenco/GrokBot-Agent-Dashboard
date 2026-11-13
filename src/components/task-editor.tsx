@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { BlockedDetailModal } from "@/components/blocked-detail-modal";
+import { AwaitingAgentBadge, ResolutionBox } from "@/components/resolution-box";
 import {
   addTaskLinkAction,
   commentOnTaskAction,
@@ -12,7 +13,7 @@ import {
 import { taskBlockedEntry, type BlockedAgentRef } from "@/lib/blocked";
 import { formatCancunTimestamp } from "@/lib/time";
 import type { BlockEvent, Task, TaskComment, TaskLink } from "@/lib/types";
-import { LINK_KINDS, PRIORITY_OPTIONS, WORK_COLUMNS, canonicalPriority, columnStatus, personName } from "@/lib/work";
+import { LINK_KINDS, PRIORITY_OPTIONS, WORK_COLUMNS, canonicalPriority, columnStatus, isClosedStatus, personName } from "@/lib/work";
 
 type Choice = { id: string; name: string; slug: string };
 type ProjectChoice = { id: string; name: string; slug: string; archived_at: string | null };
@@ -52,6 +53,9 @@ export function TaskEditor({
   const [linkLabel, setLinkLabel] = useState("");
   const refs = task.external_refs ?? {};
   const blockEntry = taskBlockedEntry(owner, task, "blocked");
+  const resolutions = comments.filter((item) => item.kind === "resolution");
+  const notes = comments.filter((item) => item.kind !== "resolution");
+  const canPostResolution = task.blocked && !isClosedStatus(task.status);
 
   async function save(form: FormData) {
     setPending(true);
@@ -89,7 +93,10 @@ export function TaskEditor({
           void save(new FormData(event.currentTarget));
         }}
       >
-        <p className="work-id">{task.identifier}</p>
+        <div className="task-meta">
+          <p className="work-id">{task.identifier}</p>
+          {task.resolution_pending ? <AwaitingAgentBadge /> : null}
+        </div>
         <label className="field">
           Title
           <input name="title" defaultValue={task.title} required maxLength={200} />
@@ -266,6 +273,23 @@ export function TaskEditor({
             ))}
           </ul>
         </section>
+        {canPostResolution || resolutions.length > 0 ? (
+          <section className="detail-card">
+            <h2>Resolution</h2>
+            <ResolutionBox
+              taskId={task.id}
+              resolutions={resolutions.map((item) => ({
+                id: item.id,
+                author: item.author,
+                body: item.body,
+                created_at: item.created_at,
+              }))}
+              state={task.resolution_state ?? (task.resolution_pending ? "awaiting_agent" : "none")}
+              acknowledgedAt={task.resolution_acknowledged_at ?? null}
+              canPost={canPostResolution}
+            />
+          </section>
+        ) : null}
         <section className="detail-card">
           <h2>Blocked</h2>
           {task.blocked ? (
@@ -289,9 +313,9 @@ export function TaskEditor({
         </section>
         <section className="detail-card">
           <h2>Comments</h2>
-          {comments.length === 0 ? <p className="empty">No comments yet.</p> : null}
+          {notes.length === 0 ? <p className="empty">No comments yet.</p> : null}
           <ul className="check-list">
-            {comments.map((item) => (
+            {notes.map((item) => (
               <li key={item.id}>
                 <strong>{personName(item.author, agents)}</strong> {item.body}
                 <div className="quiet-line">{formatCancunTimestamp(item.created_at)}</div>

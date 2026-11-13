@@ -1,6 +1,7 @@
 import { MyTasks } from "@/components/my-tasks";
 import { Shell } from "@/components/shell";
 import { WorkViewSwitch } from "@/components/work-view-switch";
+import { blockedEntriesByTaskId } from "@/lib/blocked";
 import { loadChrome } from "@/lib/chrome";
 import { selectMyTasks } from "@/lib/my-tasks";
 import { etTodayISO } from "@/lib/time";
@@ -19,7 +20,7 @@ export default async function MyTasksPage() {
       <h1 className="greeting">My tasks</h1>
       <p className="subhead">Open tasks assigned to you, or blocked and waiting on you. Due dates are Eastern Time.</p>
       <WorkViewSwitch view="mine" mineHref="/work/me" boardHref="/work?view=board" listHref="/work?view=list" />
-      <MyTasks selection={selection} />
+      <MyTasks selection={selection} entries={blockedEntriesByTaskId(chrome.agents, chrome.tasks)} />
     </Shell>
   );
 }

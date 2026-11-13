@@ -1,7 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { BlockedDetailModal } from "@/components/blocked-detail-modal";
-import { reportBlockedEntry } from "@/lib/blocked";
+import { reportBlockedEntry, taskBlockedEntry } from "@/lib/blocked";
+import type { Task } from "@/lib/types";
+
+vi.mock("@/app/work-actions", () => ({
+  listTaskResolutionsAction: vi.fn(),
+  postResolutionAction: vi.fn(),
+}));
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
@@ -46,5 +52,37 @@ describe("blocked detail modal", () => {
     expect(html).toContain('href="https://github.com/herzen-co/audits/pull/10"');
     expect(html).toContain("GitHub PR");
     expect(html).toContain("Not provided");
+    expect(html).not.toContain("Resolution history");
+  });
+
+  it("puts a resolution field on a task-backed block", () => {
+    const task: Task = {
+      id: "33333333-3333-4333-8333-333333333333",
+      title: "Ship memo",
+      details: null,
+      agent_id: "chopper",
+      priority: "medium",
+      status: "in_progress",
+      blocked: true,
+      blocked_note: "Counsel has not replied",
+      blocked_reason: "Counsel has not replied",
+      created_at: "2026-11-12T16:00:00.000Z",
+      updated_at: "2026-11-12T16:00:00.000Z",
+      done_at: null,
+      resolution_state: "none",
+    };
+    const entry = taskBlockedEntry(
+      { id: "chopper", name: "Chopper", slug: "chopper", role: "Herzen Co." },
+      task,
+      "blocked",
+    );
+    expect(entry).not.toBeNull();
+    if (!entry) return;
+    const html = renderToStaticMarkup(
+      <BlockedDetailModal entries={[entry]} heading="Chopper is blocked" onClose={() => undefined} />,
+    );
+    expect(html).toContain("Resolution");
+    expect(html).toContain("Submit");
+    expect(html).toContain("Resolution history");
   });
 });

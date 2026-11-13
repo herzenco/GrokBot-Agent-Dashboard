@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getTask, listAgents } from "@/lib/data";
 import { planDocumentMove } from "@/lib/documents";
 import { statusActivitySummary } from "@/lib/live";
+import { resolutionAfterUnblock } from "@/lib/resolutions";
 import { outreachActivitySummary, type OutreachPatch, type OutreachRow, type OutreachWrite } from "@/lib/outreach";
 import type { Agent, DocAction, ExternalRefs, LinkKind, LiveState, Priority, ReportBlockedItem, Task } from "@/lib/types";
 import {
@@ -253,6 +254,8 @@ export async function applyTaskPatch(
   }
 
   const row = planned.row;
+  const acknowledgedAt = new Date().toISOString();
+  const ack = resolutionAfterUnblock(current, row.blocked, acknowledgedAt);
   const { data, error } = await db()
     .from("tasks")
     .update({
@@ -274,6 +277,7 @@ export async function applyTaskPatch(
       parent_id: row.parent_id,
       external_refs: row.external_refs,
       done_at: row.done_at,
+      ...(ack ?? {}),
     })
     .eq("id", taskId)
     .select(TASK_COLUMNS)
@@ -286,6 +290,27 @@ export async function applyTaskPatch(
       verb: planned.activity.verb,
       task_id: task.id,
       summary: planned.activity.summary,
+    });
+  }
+  if (ack) {
+    await insertBlockEvent({
+      taskId,
+      actor,
+      action: "resolution_acknowledged",
+      snapshot: {
+        blocked_note: current.blocked_note ?? null,
+        blocked_reason: current.blocked_reason ?? null,
+        unblock_needed: current.unblock_needed ?? null,
+        waiting_on: current.waiting_on ?? null,
+        source_url: current.source_url ?? null,
+      },
+      detail: "Acknowledged when the block was cleared.",
+    });
+    await writeActivity({
+      actor,
+      verb: "resolution_acknowledged",
+      task_id: task.id,
+      summary: `acknowledged the resolution on ${quote(task.title)} by clearing the block`,
     });
   }
   return { task };

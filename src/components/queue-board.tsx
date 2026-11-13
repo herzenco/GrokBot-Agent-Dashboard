@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { reassignTaskAction, setTaskBlockedAction, setTaskPriorityAction, setTaskStatusAction } from "@/app/actions";
 import { BlockedDetailModal } from "@/components/blocked-detail-modal";
+import { AwaitingAgentBadge } from "@/components/resolution-box";
 import type { ShellAgent } from "@/components/shell";
 import { taskBlockedEntry, type BlockedAgentRef } from "@/lib/blocked";
 import { ageLabel } from "@/lib/time";
@@ -147,6 +148,7 @@ function TaskCard({
             Blocked
           </button>
         ) : null}
+        {task.resolution_pending ? <AwaitingAgentBadge /> : null}
       </div>
       {task.blocked ? (
         <button type="button" className="blocked-note blocked-note-btn" aria-haspopup="dialog" onClick={() => setDetail(true)}>

@@ -33,6 +33,8 @@ export type MyTaskSource = {
   agent_id: string;
   project_id?: string | null;
   project_name?: string | null;
+  resolution_pending?: boolean | null;
+  resolution_state?: string | null;
 };
 
 export type MyTaskAgentRef = {
@@ -61,6 +63,7 @@ export type MyTaskItem = {
   overdue: boolean;
   assigned: boolean;
   waiting: boolean;
+  resolutionPending: boolean;
   agentId: string;
   agentName: string;
 };
@@ -184,6 +187,7 @@ export function selectMyTasks(
         overdue: Boolean(dueOn && dueOn < today),
         assigned: task.assignee_herzen === true,
         waiting: task.blocked === true && waitingOnHerzen(task.waiting_on),
+        resolutionPending: task.resolution_pending === true || task.resolution_state === "awaiting_agent",
         agentId: task.agent_id,
         agentName: agent?.name ?? "Unknown",
       },
