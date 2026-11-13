@@ -22,7 +22,7 @@ export async function middleware(req: NextRequest) {
       );
     }
     const url = new URL("/login", req.url);
-    if (pathname !== "/") url.searchParams.set("next", pathname);
+    if (pathname !== "/") url.searchParams.set("next", `${pathname}${req.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
 

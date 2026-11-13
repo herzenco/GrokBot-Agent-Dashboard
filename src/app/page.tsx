@@ -8,7 +8,8 @@ import { Shell, Split } from "@/components/shell";
 import { tileVar } from "@/lib/avatar-model";
 import { collectBlockedEntries } from "@/lib/blocked";
 import { loadBoard } from "@/lib/chrome";
-import { etHour, formatEtDateline, formatIsoMonthDay, greetingForHour } from "@/lib/time";
+import { selectMyTasks } from "@/lib/my-tasks";
+import { etHour, etTodayISO, formatEtDateline, formatIsoMonthDay, greetingForHour } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function BoardPage() {
   const now = new Date();
   const { agents, cards, stats, activity, live, tasks, moods } = await loadBoard(now);
   const blockedEntries = collectBlockedEntries({ agents, tasks, live, moods });
+  const mine = selectMyTasks(tasks, agents, etTodayISO(now));
 
   return (
     <Shell active="board" agents={agents} live={live} activity={activity}>
@@ -26,6 +28,13 @@ export default async function BoardPage() {
         <LiveIndicator />
       </div>
       <section className="stats" aria-label="Summary">
+        <Link href="/work/me" className="stat stat-link">
+          <span className="stat-top">
+            My tasks
+            {mine.overdue > 0 ? <span className="stuck-word">{mine.overdue} overdue</span> : <span>for you</span>}
+          </span>
+          <span className="stat-value">{mine.count}</span>
+        </Link>
         <div className="stat">
           <span className="stat-label">To do</span>
           <span className="stat-value">{stats.todo}</span>
